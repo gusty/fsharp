@@ -804,16 +804,7 @@ and solveTypMeetsTyparConstraints (csenv: ConstraintSolverEnv) ndeep m2 trace ty
     // Solve constraints on 'tp' w.r.t. 'ty' 
     for e in r.Constraints do
       do!
-      match e with
-      | TyparConstraint.DefaultsTo (priority, dty, m) -> 
-          if typeEquiv g ty dty then 
-              CompleteD
-          else
-              match tryDestTyparTy g ty with
-              | ValueNone -> CompleteD
-              | ValueSome destTypar ->
-                  AddConstraint csenv ndeep m2 trace destTypar (TyparConstraint.DefaultsTo(priority, dty, m))
-          
+      match e with          
       | TyparConstraint.SupportsNull m2                -> SolveTypeSupportsNull               csenv ndeep m2 trace ty
       | TyparConstraint.IsEnum(underlying, m2)         -> SolveTypeIsEnum                     csenv ndeep m2 trace ty underlying
       | TyparConstraint.SupportsComparison(m2)         -> SolveTypeSupportsComparison         csenv ndeep m2 trace ty
@@ -825,8 +816,15 @@ and solveTypMeetsTyparConstraints (csenv: ConstraintSolverEnv) ndeep m2 trace ty
       | TyparConstraint.RequiresDefaultConstructor m2  -> SolveTypeRequiresDefaultConstructor csenv ndeep m2 trace ty
       | TyparConstraint.SimpleChoice(tys, m2)          -> SolveTypeChoice                     csenv ndeep m2 trace ty tys
       | TyparConstraint.CoercesTo(ty2, m2)             -> SolveTypeSubsumesTypeKeepAbbrevs    csenv ndeep m2 trace None ty2 ty
-      | TyparConstraint.MayResolveMember(traitInfo, m2) -> 
-          SolveMemberConstraint csenv false false ndeep m2 trace traitInfo |> OperationResult.ignore
+      | TyparConstraint.MayResolveMember(traitInfo, m2) -> SolveMemberConstraint csenv false false ndeep m2 trace traitInfo |> OperationResult.ignore
+      | TyparConstraint.DefaultsTo (priority, dty, m) -> 
+          if typeEquiv g ty dty then 
+              CompleteD
+          else
+              match tryDestTyparTy g ty with
+              | ValueNone -> CompleteD
+              | ValueSome destTypar ->
+                  AddConstraint csenv ndeep m2 trace destTypar (TyparConstraint.DefaultsTo(priority, dty, m))
   }
 
         
