@@ -2288,9 +2288,12 @@ and GetRelevantMethodsForTrait (csenv: ConstraintSolverEnv) (permitWeakResolutio
                     match traitInfo.TraitContext with
                     | Some (:? TraitContext as traitCtxt) ->
                         traitCtxt.SelectExtensionMethods(traitInfo, m, csenv.SolverState.InfoReader)
+                        // Deduplicate extension methods (same method can appear for multiple support types)
+                        |> ListSet.setify (fun (_, minfo1) (_, minfo2) -> MethInfo.MethInfosUseIdenticalDefinitions minfo1 minfo2)
+                        // Filter out extension methods that duplicate an intrinsic method
                         |> List.filter (fun (_, extMinfo) ->
                             not (minfos |> List.exists (fun (_, intrinsicMinfo) ->
-                                MethInfosEquivByNameAndSig EraseAll true csenv.g csenv.amap m intrinsicMinfo extMinfo)))
+                                MethInfo.MethInfosUseIdenticalDefinitions intrinsicMinfo extMinfo)))
                     | Some _ ->
                         error (InternalError("GetRelevantMethodsForTrait: unexpected ITraitContext implementation", m))
                     | None -> []
