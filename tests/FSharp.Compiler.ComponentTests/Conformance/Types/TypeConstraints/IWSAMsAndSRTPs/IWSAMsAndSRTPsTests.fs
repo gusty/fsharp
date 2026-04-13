@@ -3,6 +3,7 @@ namespace Conformance.Types
 
 open Xunit
 open System.IO
+open FSharp.Compiler.Diagnostics
 open FSharp.Test
 open FSharp.Test.Compiler
 
@@ -3915,3 +3916,273 @@ if result.[3] <> "c" then failwith (sprintf "Expected result.[3]=\"c\" but got %
         |> withReferences [library]
         |> compileAndRun
         |> shouldSucceed
+
+    // -----------------------------------------------------------------------
+    // C#-style extension methods and SRTP
+    // -----------------------------------------------------------------------
+    // C#-style extension methods go through ILMeth (not FSMeth) in the
+    // compiler. These tests verify that SRTP constraint resolution finds
+    // C#-style extension methods during typechecking (uses typecheckResults
+    // to avoid a codegen ICE in IlxGen that is tracked separately).
+
+    [<Fact>]
+    let ``C#-style extension on concrete non-generic type resolves via SRTP — int Double`` () =
+        let csLib =
+            CSharp """
+namespace CsExt {
+    public static class IntExtensions {
+        public static int Double(this int x) { return x * 2; }
+    }
+}
+            """
+            |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
+            |> withName "csLib"
+
+        let checkResults =
+            FSharp """
+module Consumer
+
+open CsExt
+
+let inline doubleIt (x: ^T) = (^T : (member Double : unit -> int) x)
+
+let result = doubleIt 21
+            """
+            |> withLangVersionPreview
+            |> withReferences [csLib]
+            |> typecheckResults
+
+        let errors =
+            checkResults.Diagnostics
+            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
+
+        Assert.Empty(errors)
+
+    [<Fact>]
+    let ``C#-style extension on open generic array resolves via SRTP — Append`` () =
+        let csLib =
+            CSharp """
+namespace CsExt {
+    public static class ArrayExtensions {
+        public static T[] Append<T>(this T[] a, T[] b) {
+            var result = new T[a.Length + b.Length];
+            a.CopyTo(result, 0);
+            b.CopyTo(result, a.Length);
+            return result;
+        }
+    }
+}
+            """
+            |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
+            |> withName "csLib"
+
+        let checkResults =
+            FSharp """
+module Consumer
+
+open CsExt
+
+let inline append (a: ^T) (b: int[]) = (^T : (member Append : int[] -> int[]) (a, b))
+
+let result = append [|1; 2|] [|3; 4|]
+            """
+            |> withLangVersionPreview
+            |> withReferences [csLib]
+            |> typecheckResults
+
+        let errors =
+            checkResults.Diagnostics
+            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
+
+        Assert.Empty(errors)
+
+    [<Fact>]
+    let ``C#-style extension on unconstrained generic resolves via SRTP — Stringify`` () =
+        let csLib =
+            CSharp """
+namespace CsExt {
+    public static class GenericExtensions {
+        public static string Stringify<T>(this T value) {
+            return value != null ? value.ToString() : "";
+        }
+    }
+}
+            """
+            |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
+            |> withName "csLib"
+
+        let checkResults =
+            FSharp """
+module Consumer
+
+open CsExt
+
+let inline stringify (x: ^T) = (^T : (member Stringify : unit -> string) x)
+
+let r1 = stringify 42
+let r2 = stringify "hello"
+            """
+            |> withLangVersionPreview
+            |> withReferences [csLib]
+            |> typecheckResults
+
+        let errors =
+            checkResults.Diagnostics
+            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
+
+        Assert.Empty(errors)
+
+    [<Fact>]
+    let ``C#-style extension with multiple type parameters resolves via SRTP — Select`` () =
+        let csLib =
+            CSharp """
+using System;
+namespace CsExt {
+    public static class ArrayProjection {
+        public static TResult[] Select<TSource, TResult>(this TSource[] arr, Func<TSource, TResult> f) {
+            var result = new TResult[arr.Length];
+            for (int i = 0; i < arr.Length; i++)
+                result[i] = f(arr[i]);
+            return result;
+        }
+    }
+}
+            """
+            |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
+            |> withName "csLib"
+
+        let checkResults =
+            FSharp """
+module Consumer
+
+open System
+open CsExt
+
+let inline select (arr: ^T) (f: Func<int, string>) = (^T : (member Select : Func<int, string> -> string[]) (arr, f))
+
+let result = select [|1; 2; 3|] (Func<int, string>(fun x -> string x))
+            """
+            |> withLangVersionPreview
+            |> withReferences [csLib]
+            |> typecheckResults
+
+        let errors =
+            checkResults.Diagnostics
+            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
+
+        Assert.Empty(errors)
+
+    [<Fact>]
+    let ``C#-style extension on nullable value type resolves via SRTP — OrDefault`` () =
+        let csLib =
+            CSharp """
+namespace CsExt {
+    public static class NullableExtensions {
+        public static T OrDefault<T>(this T? value, T def) where T : struct {
+            return value ?? def;
+        }
+    }
+}
+            """
+            |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
+            |> withName "csLib"
+
+        let checkResults =
+            FSharp """
+module Consumer
+
+open System
+open CsExt
+
+let inline orDefault (x: ^T) (d: int) = (^T : (member OrDefault : int -> int) (x, d))
+
+let v1 = Nullable<int>(7)
+let r1 = orDefault v1 0
+
+let v2 = Nullable<int>()
+let r2 = orDefault v2 99
+            """
+            |> withLangVersionPreview
+            |> withReferences [csLib]
+            |> typecheckResults
+
+        let errors =
+            checkResults.Diagnostics
+            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
+
+        Assert.Empty(errors)
+
+    [<Fact>]
+    let ``C#-style extension on reference type resolves via SRTP — Safe on obj`` () =
+        let csLib =
+            CSharp """
+namespace CsExt {
+    public static class ObjectExtensions {
+        public static string Safe(this object obj) {
+            return obj != null ? obj.ToString() : "null";
+        }
+    }
+}
+            """
+            |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
+            |> withName "csLib"
+
+        let checkResults =
+            FSharp """
+module Consumer
+
+open CsExt
+
+let inline safe (x: ^T) = (^T : (member Safe : unit -> string) x)
+
+let r1 = safe (box 42)
+            """
+            |> withLangVersionPreview
+            |> withReferences [csLib]
+            |> typecheckResults
+
+        let errors =
+            checkResults.Diagnostics
+            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
+
+        Assert.Empty(errors)
+
+    [<Fact>]
+    let ``C#-style extension on concrete generic instantiation resolves via SRTP — List Sum`` () =
+        let csLib =
+            CSharp """
+using System.Collections.Generic;
+namespace CsExt {
+    public static class ListExtensions {
+        public static int Sum(this List<int> list) {
+            int s = 0;
+            foreach (var v in list) s += v;
+            return s;
+        }
+    }
+}
+            """
+            |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
+            |> withName "csLib"
+
+        let checkResults =
+            FSharp """
+module Consumer
+
+open System.Collections.Generic
+open CsExt
+
+let inline sum (x: ^T) = (^T : (member Sum : unit -> int) x)
+
+let list = List<int>([| 10; 20; 30 |])
+let result = sum list
+            """
+            |> withLangVersionPreview
+            |> withReferences [csLib]
+            |> typecheckResults
+
+        let errors =
+            checkResults.Diagnostics
+            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
+
+        Assert.Empty(errors)
