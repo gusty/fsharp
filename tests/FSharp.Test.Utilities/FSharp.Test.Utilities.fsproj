@@ -103,9 +103,6 @@
  <!-- 44: AssemblyName.CodeBase is deprecated but needed for assembly resolution in VS integration tests -->
 </PropertyGroup>
   <ItemGroup>
-    <PackageReference Include="System.Collections.Immutable" Version="$(SystemCollectionsImmutableVersion)" GeneratePathProperty="true"  />
-    <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.Common" Version="$(RoslynForTestingButNotForVSLayer)" />
-    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="$(RoslynForTestingButNotForVSLayer)" />
     <PackageReference Include="System.Collections.Immutable" Version="$(SystemCollectionsImmutableVersion)" GeneratePathProperty="true" />
     <PackageReference Include="Microsoft.CodeAnalysis.Workspaces.Common" Version="$(MicrosoftCodeAnalysisCSharpVersion)" />
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="$(MicrosoftCodeAnalysisCSharpVersion)" />

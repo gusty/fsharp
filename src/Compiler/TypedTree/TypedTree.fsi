@@ -1753,8 +1753,11 @@ type ITraitContext = interface end
 /// Generic typed interface for trait context operations.
 type ITraitContext<'AccessRights, 'MethodInfo, 'InfoReader> =
     inherit ITraitContext
+
     /// Select extension methods relevant to solving a trait constraint
-    abstract SelectExtensionMethods: traitInfo: TraitConstraintInfo * range: Text.range * infoReader: 'InfoReader -> (TType * 'MethodInfo) list
+    abstract SelectExtensionMethods:
+        traitInfo: TraitConstraintInfo * range: Text.range * infoReader: 'InfoReader -> (TType * 'MethodInfo) list
+
     /// Get the accessibility domain for the trait context
     abstract AccessRights: 'AccessRights
 
