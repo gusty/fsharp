@@ -3601,3 +3601,317 @@ match result with
         |> withLangVersionPreview
         |> compileAndRun
         |> shouldSucceed
+
+    // ---- Cross-assembly extrinsic extension operator regression tests ----
+    // The bug: extension operators on GENERIC type augmentations from other
+    // assemblies crashed with "BuildFSharpMethodCall: unexpected List.length
+    // mismatch" or "Undefined or unsolved type variable" because the enclosing
+    // type's type parameters were not accounted for in GenWitnessExpr.
+
+    [<Fact>]
+    let ``Extension operator on option resolves via SRTP — cross-assembly extrinsic`` () =
+        let library =
+            FSharp """
+module ExtLib
+
+type Option<'T> with
+    static member (|>>) (x, f) = Option.map f x
+            """
+            |> withName "ExtLib"
+            |> withLangVersionPreview
+
+        FSharp """
+module Consumer
+
+open ExtLib
+
+let result = Some 42 |>> string
+match result with
+| Some "42" -> ()
+| other -> failwith (sprintf "Expected Some \"42\" but got %A" other)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on array resolves via SRTP — cross-assembly extrinsic`` () =
+        let library =
+            FSharp """
+module ExtLib
+
+type 'T ``[]`` with
+    static member (++) (x1, x2) = Array.append x1 x2
+            """
+            |> withName "ExtLib"
+            |> withLangVersionPreview
+
+        FSharp """
+module Consumer
+
+open ExtLib
+
+let result = [| 1; 2 |] ++ [| 3; 4 |]
+if result <> [| 1; 2; 3; 4 |] then failwith (sprintf "Expected [|1;2;3;4|] but got %A" result)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on list resolves via SRTP — cross-assembly extrinsic`` () =
+        let library =
+            FSharp """
+module ExtLib
+
+type List<'T> with
+    static member (++) (x1, x2) = x1 @ x2
+            """
+            |> withName "ExtLib"
+            |> withLangVersionPreview
+
+        FSharp """
+module Consumer
+
+open ExtLib
+
+let result = [ 1; 2 ] ++ [ 3; 4 ]
+if result <> [ 1; 2; 3; 4 ] then failwith (sprintf "Expected [1;2;3;4] but got %A" result)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on Result resolves via SRTP — cross-assembly extrinsic`` () =
+        let library =
+            FSharp """
+module ExtLib
+
+type Result<'T, 'E> with
+    static member (|>>) (x, f) = Result.map f x
+            """
+            |> withName "ExtLib"
+            |> withLangVersionPreview
+
+        FSharp """
+module Consumer
+
+open ExtLib
+
+let result: Result<int, string> = Ok 5 |>> (fun n -> n * 2)
+match result with
+| Ok 10 -> ()
+| other -> failwith (sprintf "Expected Ok 10 but got %A" other)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on BCL List resolves via SRTP — cross-assembly extrinsic`` () =
+        let library =
+            FSharp """
+module ExtLib
+
+open System.Collections.Generic
+
+type List<'T> with
+    static member (++) (a: List<'T>, b: List<'T>) =
+        let result = List<'T>(a)
+        result.AddRange(b)
+        result
+            """
+            |> withName "ExtLib"
+            |> withLangVersionPreview
+
+        FSharp """
+module Consumer
+
+open System.Collections.Generic
+open ExtLib
+
+let a = List([| 1; 2 |])
+let b = List([| 3; 4 |])
+let result = a ++ b
+if result.Count <> 4 then failwith (sprintf "Expected count 4 but got %d" result.Count)
+if result.[2] <> 3 then failwith (sprintf "Expected result.[2]=3 but got %d" result.[2])
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on user generic type resolves via SRTP — cross-assembly extrinsic`` () =
+        let library =
+            FSharp """
+module TypeLib
+
+type Box<'T> = { Value: 'T }
+            """
+            |> withName "TypeLib"
+            |> withLangVersionPreview
+
+        let extLib =
+            FSharp """
+module ExtLib
+
+open TypeLib
+
+type Box<'T> with
+    static member (+) (a: Box<'T>, b: Box<'T>) : Box<'T list> =
+        { Value = [ a.Value; b.Value ] }
+            """
+            |> withName "ExtLib"
+            |> withLangVersionPreview
+            |> withReferences [library]
+
+        FSharp """
+module Consumer
+
+open TypeLib
+open ExtLib
+
+let a = { Value = 1 }
+let b = { Value = 2 }
+let result = a + b
+if result.Value <> [ 1; 2 ] then failwith (sprintf "Expected [1; 2] but got %A" result.Value)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library; extLib]
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on generic type resolves via SRTP — multi-module same compilation`` () =
+        FSharp """
+module TypeDef
+
+type Wrapper<'T> = { Inner: 'T }
+
+module Extensions =
+    type Wrapper<'T> with
+        static member (++) (a: Wrapper<'T>, b: Wrapper<'T>) : Wrapper<'T list> =
+            { Inner = [ a.Inner; b.Inner ] }
+
+module Consumer =
+    open Extensions
+
+    let a: Wrapper<int> = { Inner = 10 }
+    let b: Wrapper<int> = { Inner = 20 }
+    let result = a ++ b
+    if result.Inner <> [ 10; 20 ] then failwith (sprintf "Expected [10; 20] but got %A" result.Inner)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on option resolves via SRTP — cross-assembly with optimization`` () =
+        let library =
+            FSharp """
+module ExtLib
+
+type Option<'T> with
+    static member (|>>) (x, f) = Option.map f x
+            """
+            |> withName "ExtLib"
+            |> withLangVersionPreview
+
+        FSharp """
+module Consumer
+
+open ExtLib
+
+let result = Some 7 |>> (fun n -> n * 3)
+match result with
+| Some 21 -> ()
+| other -> failwith (sprintf "Expected Some 21 but got %A" other)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> withOptimize
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator with extra type parameter resolves via SRTP — cross-assembly`` () =
+        // The operator body introduces 'U beyond the enclosing type's 'T.
+        // This exercises the path where method type parameters and enclosing
+        // type parameters must both be correctly threaded through.
+        let library =
+            FSharp """
+module ExtLib
+
+type Option<'T> with
+    static member (?>>) (x: Option<'T>, f: 'T -> 'U) : Result<'U, string> =
+        match x with
+        | Some v -> Ok (f v)
+        | None -> Error "was None"
+            """
+            |> withName "ExtLib"
+            |> withLangVersionPreview
+
+        FSharp """
+module Consumer
+
+open ExtLib
+
+let r1 = Some 5 ?>> string
+match r1 with
+| Ok "5" -> ()
+| other -> failwith (sprintf "Expected Ok \"5\" but got %A" other)
+
+let r2: Result<string, string> = None ?>> string
+match r2 with
+| Error "was None" -> ()
+| other -> failwith (sprintf "Expected Error \"was None\" but got %A" other)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on Map resolves via SRTP — cross-assembly extrinsic`` () =
+        let library =
+            FSharp """
+module ExtLib
+
+type Map<'Key, 'Value when 'Key: comparison> with
+    static member (++) (a: Map<'Key, 'Value>, b: Map<'Key, 'Value>) =
+        Map.fold (fun acc k v -> Map.add k v acc) a b
+            """
+            |> withName "ExtLib"
+            |> withLangVersionPreview
+
+        FSharp """
+module Consumer
+
+open ExtLib
+
+let a = Map.ofList [ (1, "a"); (2, "b") ]
+let b = Map.ofList [ (3, "c") ]
+let result = a ++ b
+if result.Count <> 3 then failwith (sprintf "Expected count 3 but got %d" result.Count)
+if result.[3] <> "c" then failwith (sprintf "Expected result.[3]=\"c\" but got %s" result.[3])
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
