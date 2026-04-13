@@ -20,6 +20,8 @@
   - `[<AllowOverloadOnReturnType>]` attribute for defining overloads that differ only by return type (suggestion #820). When applied, return-type information is used during overload resolution to disambiguate call sites.
   - Cross-assembly resolution: extension operators defined in referenced assemblies are resolved via SRTP constraints
   - Extension members solve SRTP constraints but do *not* satisfy nominal static abstract interface constraints (IWSAMs). These are orthogonal mechanisms.
+* Warn (FS3884) when a function or delegate value is used as an interpolated string argument, since it will be formatted via `ToString` rather than being applied. ([PR #19289](https://github.com/dotnet/fsharp/pull/19289))
+* Added `MethodOverloadsCache` language feature (preview) that caches overload resolution results for repeated method calls, significantly improving compilation performance. ([PR #19072](https://github.com/dotnet/fsharp/pull/19072))
 
 ### Fixed
 

@@ -38,3 +38,27 @@ module Library =
 
 
 
+    /// Type with Sealed attribute for compatibility testing
+    [<Sealed>]
+    type SealedType() =
+        member _.Value = 42
+
+    /// Type with Struct attribute for compatibility testing
+    [<Struct>]
+    type StructRecord = { X: int; Y: float }
+
+    /// Type with DefaultAugmentation(false) for compatibility testing
+    [<DefaultAugmentation(false)>]
+    type NoHelpersUnion = Case1 | Case2 of int
+
+    /// Value with RequireQualifiedAccess for compatibility testing
+    [<RequireQualifiedAccess>]
+    type QualifiedEnum = A = 0 | B = 1
+
+    /// Value with Literal attribute
+    [<Literal>]
+    let LiteralValue = 42
+
+    /// Function with ReflectedDefinition
+    [<ReflectedDefinition>]
+    let reflectedFunction x = x + 1
