@@ -3559,3 +3559,45 @@ if result.Value <> 13 then failwith (sprintf "Expected 13 but got %d" result.Val
         |> withOptimize
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on generic type augmentation resolves via SRTP - Array append`` () =
+        // Regression: extension operator (++) on 'T[] caused
+        // "BuildFSharpMethodCall: unexpected List.length mismatch" during optimization.
+        // The enclosing type's type parameters were not accounted for in GenWitnessExpr.
+        // Reported by gusty: https://github.com/dotnet/fsharp/pull/19396
+        FSharp """
+module TestArrayExtOp
+
+type 'T ``[]`` with
+    static member (++) (x1, x2) = Array.append x1 x2
+
+let result = [| 3 |] ++ [| 6 |]
+if result <> [| 3; 6 |] then failwith (sprintf "Expected [|3; 6|] but got %A" result)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on generic type augmentation resolves via SRTP - Option map`` () =
+        // Regression: extension operator (|>>) on Option<'T> caused
+        // "BuildFSharpMethodCall: unexpected List.length mismatch" during optimization.
+        // Same root cause as the Array case — enclosing generic type parameters missing.
+        // Reported by gusty: https://github.com/dotnet/fsharp/pull/19396
+        FSharp """
+module TestOptionExtOp
+
+type Option<'T> with
+    static member (|>>) (x, f) = Option.map f x
+
+let result = Some 1 |>> string
+match result with
+| Some "1" -> ()
+| other -> failwith (sprintf "Expected Some \"1\" but got %A" other)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed

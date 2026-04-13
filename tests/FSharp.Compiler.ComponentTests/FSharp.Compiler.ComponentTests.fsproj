@@ -418,7 +418,6 @@
     <Compile Include="CompilerOptions\fsc\refonlyrefout.fs" />
     <Compile Include="CompilerOptions\fsc\sourceFiles.fs" />
     <Compile Include="CompilerOptions\Fsc\FscCliTests.fs" />
-    <Compile Include="CompilerOptions\Fsc\FscOptionTests.fs" />
     <Compile Include="CompilerOptions\Fsc\Removed.fs" />
     <Compile Include="CompilerOptions\Fsc\responsefile\responsefile.fs" />
     <Compile Include="CompilerOptions\fsc\standalone\standalone.fs" />
