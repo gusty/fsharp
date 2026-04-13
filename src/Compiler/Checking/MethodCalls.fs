@@ -1085,7 +1085,22 @@ let BuildFSharpMethodCall g m (ty, vref: ValRef) valUseFlags minst args =
     let vExpr = Expr.Val (vref, valUseFlags, m)
     let vExprTy = vref.Type
     let tpsorig, tau =  vref.GeneralizedType
-    let vtinst = argsOfAppTy g ty @ minst
+    let vtinst =
+        if vref.IsExtensionMember then
+            // For extension members, FormalMethodTypars includes the enclosing type's
+            // type parameters (AnalyzeTypeOfMemberVal treats all typars as method typars).
+            // The minst from the trait solution contains fresh type variables for all of them,
+            // but the enclosing type's type parameters may not be solved through trait matching
+            // (the trait solver constrains method-level typars, not enclosing-type typars).
+            // Use argsOfAppTy to get the concrete enclosing type args, then append
+            // the remaining method-specific type args from minst.
+            let parentTyArgs = argsOfAppTy g ty
+            if List.length minst < parentTyArgs.Length then
+                error(InternalError("BuildFSharpMethodCall: minst shorter than enclosing type args for extension member", m))
+            else
+                parentTyArgs @ List.skip parentTyArgs.Length minst
+        else
+            argsOfAppTy g ty @ minst
     if tpsorig.Length <> vtinst.Length then error(InternalError("BuildFSharpMethodCall: unexpected List.length mismatch", m))
     let expr = mkTyAppExpr m (vExpr, vExprTy) vtinst
     let exprTy = instType (mkTyparInst tpsorig vtinst) tau
