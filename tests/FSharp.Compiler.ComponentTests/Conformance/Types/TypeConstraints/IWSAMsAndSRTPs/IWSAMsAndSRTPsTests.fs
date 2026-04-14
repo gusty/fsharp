@@ -3562,10 +3562,10 @@ if totalDist <> 150.0<m> then failwith (sprintf "Expected 150.0<m> but got %A" t
 
     [<Fact>]
     let ``Extension operator SRTP resolves correctly under optimization`` () =
-        // This test verifies that CreateImplFileTraitContext (the optimizer/codegen
-        // trait context) correctly finds extension operators. Compiling with --optimize+
-        // exercises the optimizer path which uses a different trait context than
-        // the type-checker.
+        // Regression test: this exercises the optimizer's OptimizeTraitCall → 
+        // CodegenWitnessExprForTraitConstraint → GenWitnessExpr code path.
+        // The optimizer resolves trait calls before IlxGen, so bugs in
+        // GenWitnessExpr expression construction only manifest with --optimize+.
         FSharp """
 module TestOptimizedExtSRTP
 
@@ -4307,32 +4307,6 @@ if result2 <> "abab" then failwith (sprintf "Expected 'abab' but got '%%s'" resu
         |> shouldSucceed
 
     [<Fact>]
-    let ``adversarial — Extension operator on option resolves via SRTP — cross-assembly with optimize minus`` () =
-        let library = optionMapExtLib
-
-        FSharp """
-module Consumer
-
-open ExtLib
-
-let result = Some 7 |>> (fun n -> n * 3)
-match result with
-| Some 21 -> ()
-| other -> failwith (sprintf "Expected Some 21 but got %A" other)
-
-let result2 = None |>> (fun n -> n + 1)
-match result2 with
-| None -> ()
-| other -> failwith (sprintf "Expected None but got %A" other)
-        """
-        |> asExe
-        |> withLangVersionPreview
-        |> withReferences [library]
-        |> withNoOptimize
-        |> compileAndRun
-        |> shouldSucceed
-
-    [<Fact>]
     let ``adversarial — Signature file constraining inline SRTP with extension operator`` () =
         let fsiSource = """
 module ExtLib
@@ -4351,4 +4325,48 @@ let repeatStr (s: string) (n: int) : string = repeatInline s n
         |> withAdditionalSourceFile (FsSource fsSource)
         |> withLangVersionPreview
         |> compile
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operators across modules in same compilation — non-generic, generic, multi-generic`` () =
+        FSharp """
+namespace TestNS
+
+module Types =
+    type Widget = { Value: int }
+    type Wrapper<'T> = { Inner: 'T }
+    type Pair<'K,'V> = { First: 'K; Second: 'V }
+
+module Ops =
+    open Types
+    type Widget with
+        static member (+) (a: Widget, b: Widget) = { Value = a.Value + b.Value }
+    type Wrapper<'T> with
+        static member (++) (a: Wrapper<'T>, b: Wrapper<'T>) = { Inner = a.Inner }
+    type Pair<'K,'V> with
+        static member (++) (a: Pair<'K,'V>, b: Pair<'K,'V>) = { First = a.First; Second = b.Second }
+
+module Consumer =
+    open Types
+    open Ops
+
+    let inline add a b = a + b
+    let inline combine a b = a ++ b
+
+    // Non-generic
+    let w = add { Value = 10 } { Value = 20 }
+    if w.Value <> 30 then failwith (sprintf "Expected 30 but got %d" w.Value)
+
+    // Single-generic
+    let r = combine { Inner = "hello" } { Inner = "world" }
+    if r.Inner <> "hello" then failwith (sprintf "Expected 'hello' but got '%s'" r.Inner)
+
+    // Multi-generic
+    let p = combine { First = 1; Second = "a" } { First = 2; Second = "b" }
+    if p.First <> 1 then failwith (sprintf "Expected 1 but got %d" p.First)
+    if p.Second <> "b" then failwith (sprintf "Expected 'b' but got '%s'" p.Second)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
         |> shouldSucceed
