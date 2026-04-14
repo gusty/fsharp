@@ -2199,13 +2199,18 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
             match sln with 
             | ILMethSln(origTy, extOpt, mref, minst, staticTyOpt) ->
                 let metadataTy = convertToTypeWithMetadataIfPossible g origTy
-                let tcref = tcrefOfAppTy g metadataTy
-                let mdef = resolveILMethodRef tcref.ILTyconRawMetadata mref
                 let ilMethInfo =
-                    match extOpt with 
-                    | None -> MethInfo.CreateILMeth(amap, m, origTy, mdef)
-                    | Some ilActualTypeRef -> 
-                        let actualTyconRef = ImportILTypeRef amap m ilActualTypeRef 
+                    match extOpt with
+                    | None ->
+                        let tcref = tcrefOfAppTy g metadataTy
+                        let mdef = resolveILMethodRef tcref.ILTyconRawMetadata mref
+                        MethInfo.CreateILMeth(amap, m, origTy, mdef)
+                    | Some ilActualTypeRef ->
+                        // For C#-style extension methods, the method lives in a static helper
+                        // class (ilActualTypeRef), not on the apparent/extended type (origTy).
+                        // Resolve the method reference against the declaring type's metadata.
+                        let actualTyconRef = ImportILTypeRef amap m ilActualTypeRef
+                        let mdef = resolveILMethodRef actualTyconRef.ILTyconRawMetadata mref
                         MethInfo.CreateILExtensionMeth(amap, m, origTy, actualTyconRef, None, mdef)
                 Choice1Of5 (ilMethInfo, minst, staticTyOpt)
 

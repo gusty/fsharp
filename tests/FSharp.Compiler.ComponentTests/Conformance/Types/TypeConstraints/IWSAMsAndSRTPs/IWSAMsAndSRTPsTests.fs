@@ -3926,8 +3926,11 @@ if result.[3] <> "c" then failwith (sprintf "Expected result.[3]=\"c\" but got %
     // -----------------------------------------------------------------------
     // C#-style extension methods go through ILMeth (not FSMeth) in the
     // compiler. These tests verify that SRTP constraint resolution finds
-    // C#-style extension methods during typechecking (uses typecheckResults
-    // to avoid a codegen ICE in IlxGen that is tracked separately).
+    // C#-style extension methods, generates correct code, and runs correctly.
+    //
+    // Note: Extensions on value-type receivers (int, Nullable<T>, unconstrained T)
+    // produce InvalidProgramException at runtime due to an IlxGen IL emission issue
+    // with constrained calls on value types. Those tests use typecheck-only verification.
 
     let private shouldTypecheckWithCSharpExtension csLib fsharpSource =
         let checkResults =
@@ -3942,6 +3945,7 @@ if result.[3] <> "c" then failwith (sprintf "Expected result.[3]=\"c\" but got %
 
     [<Fact>]
     let ``C#-style extension on concrete non-generic type resolves via SRTP — int Double`` () =
+        // Typecheck-only: value-type receiver emits invalid IL (constrained call issue)
         let csLib =
             CSharp """
 namespace CsExt {
@@ -3961,6 +3965,7 @@ open CsExt
 let inline doubleIt (x: ^T) = (^T : (member Double : unit -> int) x)
 
 let result = doubleIt 21
+if result <> 42 then failwith (sprintf "Expected 42 but got %d" result)
             """
         |> shouldTypecheckWithCSharpExtension csLib
 
@@ -3990,11 +3995,17 @@ open CsExt
 let inline append (a: ^T) (b: int[]) = (^T : (member Append : int[] -> int[]) (a, b))
 
 let result = append [|1; 2|] [|3; 4|]
+if result <> [|1; 2; 3; 4|] then failwith (sprintf "Expected [|1;2;3;4|] but got %A" result)
             """
-        |> shouldTypecheckWithCSharpExtension csLib
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [csLib]
+        |> compileAndRun
+        |> shouldSucceed
 
     [<Fact>]
     let ``C#-style extension on unconstrained generic resolves via SRTP — Stringify`` () =
+        // Typecheck-only: unconstrained T instantiated with value type emits invalid IL
         let csLib =
             CSharp """
 namespace CsExt {
@@ -4048,11 +4059,17 @@ open CsExt
 let inline select (arr: ^T) (f: Func<int, string>) = (^T : (member Select : Func<int, string> -> string[]) (arr, f))
 
 let result = select [|1; 2; 3|] (Func<int, string>(fun x -> string x))
+if result <> [|"1"; "2"; "3"|] then failwith (sprintf "Expected [|1;2;3|] as strings but got %A" result)
             """
-        |> shouldTypecheckWithCSharpExtension csLib
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [csLib]
+        |> compileAndRun
+        |> shouldSucceed
 
     [<Fact>]
     let ``C#-style extension on nullable value type resolves via SRTP — OrDefault`` () =
+        // Typecheck-only: Nullable<T> (value-type) receiver emits invalid IL
         let csLib =
             CSharp """
 namespace CsExt {
@@ -4105,8 +4122,13 @@ open CsExt
 let inline safe (x: ^T) = (^T : (member Safe : unit -> string) x)
 
 let r1 = safe (box 42)
+if r1 <> "42" then failwith (sprintf "Expected '42' but got '%s'" r1)
             """
-        |> shouldTypecheckWithCSharpExtension csLib
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [csLib]
+        |> compileAndRun
+        |> shouldSucceed
 
     [<Fact>]
     let ``C#-style extension on concrete generic instantiation resolves via SRTP — List Sum`` () =
@@ -4136,5 +4158,10 @@ let inline sum (x: ^T) = (^T : (member Sum : unit -> int) x)
 
 let list = List<int>([| 10; 20; 30 |])
 let result = sum list
+if result <> 60 then failwith (sprintf "Expected 60 but got %d" result)
             """
-        |> shouldTypecheckWithCSharpExtension csLib
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [csLib]
+        |> compileAndRun
+        |> shouldSucceed
