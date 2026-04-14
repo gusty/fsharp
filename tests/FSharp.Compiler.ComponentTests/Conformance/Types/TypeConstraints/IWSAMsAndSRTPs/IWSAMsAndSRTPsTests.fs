@@ -1849,6 +1849,44 @@ module ExtLib
         |> withName "ExtLib"
         |> withLangVersionPreview
 
+    /// Inline F# definition of the Option map extension operator.
+    /// Reused across single-file and cross-assembly SRTP tests.
+    let private optionMapExtDef = """
+type Option<'T> with
+    static member (|>>) (x, f) = Option.map f x"""
+
+    /// Library that adds an Option map extension operator via (|>>).
+    /// Reused across cross-assembly SRTP tests.
+    let private optionMapExtLib =
+        FSharp $"""
+module ExtLib
+{optionMapExtDef}
+        """
+        |> withName "ExtLib"
+        |> withLangVersionPreview
+
+    /// Library that adds an array append extension operator via (++).
+    let private arrayAppendExtLib =
+        FSharp """
+module ExtLib
+
+type 'T ``[]`` with
+    static member (++) (x1, x2) = Array.append x1 x2
+        """
+        |> withName "ExtLib"
+        |> withLangVersionPreview
+
+    /// Library that adds a list append extension operator via (++).
+    let private listAppendExtLib =
+        FSharp """
+module ExtLib
+
+type List<'T> with
+    static member (++) (x1, x2) = x1 @ x2
+        """
+        |> withName "ExtLib"
+        |> withLangVersionPreview
+
     [<Fact>]
     let ``Extension operator on string resolves with langversion preview`` () =
         FSharp $"""
@@ -3562,7 +3600,7 @@ if result.Value <> 13 then failwith (sprintf "Expected 13 but got %d" result.Val
         |> shouldSucceed
 
     [<Fact>]
-    let ``Extension operator on generic type augmentation resolves via SRTP - Array append`` () =
+    let ``Extension operator on generic type augmentation resolves via SRTP — Array append`` () =
         // Regression: extension operator (++) on 'T[] caused
         // "BuildFSharpMethodCall: unexpected List.length mismatch" during optimization.
         // The enclosing type's type parameters were not accounted for in GenWitnessExpr.
@@ -3582,21 +3620,19 @@ if result <> [| 3; 6 |] then failwith (sprintf "Expected [|3; 6|] but got %A" re
         |> shouldSucceed
 
     [<Fact>]
-    let ``Extension operator on generic type augmentation resolves via SRTP - Option map`` () =
+    let ``Extension operator on generic type augmentation resolves via SRTP — Option map`` () =
         // Regression: extension operator (|>>) on Option<'T> caused
         // "BuildFSharpMethodCall: unexpected List.length mismatch" during optimization.
         // Same root cause as the Array case — enclosing generic type parameters missing.
         // Reported by gusty: https://github.com/dotnet/fsharp/pull/19396
-        FSharp """
+        FSharp $"""
 module TestOptionExtOp
-
-type Option<'T> with
-    static member (|>>) (x, f) = Option.map f x
+{optionMapExtDef}
 
 let result = Some 1 |>> string
 match result with
 | Some "1" -> ()
-| other -> failwith (sprintf "Expected Some \"1\" but got %A" other)
+| other -> failwith (sprintf "Expected Some \"1\" but got %%A" other)
         """
         |> asExe
         |> withLangVersionPreview
@@ -3611,15 +3647,7 @@ match result with
 
     [<Fact>]
     let ``Extension operator on option resolves via SRTP — cross-assembly extrinsic`` () =
-        let library =
-            FSharp """
-module ExtLib
-
-type Option<'T> with
-    static member (|>>) (x, f) = Option.map f x
-            """
-            |> withName "ExtLib"
-            |> withLangVersionPreview
+        let library = optionMapExtLib
 
         FSharp """
 module Consumer
@@ -3639,15 +3667,7 @@ match result with
 
     [<Fact>]
     let ``Extension operator on array resolves via SRTP — cross-assembly extrinsic`` () =
-        let library =
-            FSharp """
-module ExtLib
-
-type 'T ``[]`` with
-    static member (++) (x1, x2) = Array.append x1 x2
-            """
-            |> withName "ExtLib"
-            |> withLangVersionPreview
+        let library = arrayAppendExtLib
 
         FSharp """
 module Consumer
@@ -3665,15 +3685,7 @@ if result <> [| 1; 2; 3; 4 |] then failwith (sprintf "Expected [|1;2;3;4|] but g
 
     [<Fact>]
     let ``Extension operator on list resolves via SRTP — cross-assembly extrinsic`` () =
-        let library =
-            FSharp """
-module ExtLib
-
-type List<'T> with
-    static member (++) (x1, x2) = x1 @ x2
-            """
-            |> withName "ExtLib"
-            |> withLangVersionPreview
+        let library = listAppendExtLib
 
         FSharp """
 module Consumer
@@ -3821,15 +3833,7 @@ module Consumer =
 
     [<Fact>]
     let ``Extension operator on option resolves via SRTP — cross-assembly with optimization`` () =
-        let library =
-            FSharp """
-module ExtLib
-
-type Option<'T> with
-    static member (|>>) (x, f) = Option.map f x
-            """
-            |> withName "ExtLib"
-            |> withLangVersionPreview
+        let library = optionMapExtLib
 
         FSharp """
 module Consumer
@@ -3849,7 +3853,7 @@ match result with
         |> shouldSucceed
 
     [<Fact>]
-    let ``Extension operator with extra type parameter resolves via SRTP — cross-assembly`` () =
+    let ``Extension operator with extra type parameter resolves via SRTP — cross-assembly extrinsic`` () =
         // The operator body introduces 'U beyond the enclosing type's 'T.
         // This exercises the path where method type parameters and enclosing
         // type parameters must both be correctly threaded through.
@@ -3925,6 +3929,17 @@ if result.[3] <> "c" then failwith (sprintf "Expected result.[3]=\"c\" but got %
     // C#-style extension methods during typechecking (uses typecheckResults
     // to avoid a codegen ICE in IlxGen that is tracked separately).
 
+    let private shouldTypecheckWithCSharpExtension csLib fsharpSource =
+        let checkResults =
+            fsharpSource
+            |> withLangVersionPreview
+            |> withReferences [csLib]
+            |> typecheckResults
+        let errors =
+            checkResults.Diagnostics
+            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
+        Assert.Empty(errors)
+
     [<Fact>]
     let ``C#-style extension on concrete non-generic type resolves via SRTP — int Double`` () =
         let csLib =
@@ -3938,8 +3953,7 @@ namespace CsExt {
             |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
             |> withName "csLib"
 
-        let checkResults =
-            FSharp """
+        FSharp """
 module Consumer
 
 open CsExt
@@ -3948,15 +3962,7 @@ let inline doubleIt (x: ^T) = (^T : (member Double : unit -> int) x)
 
 let result = doubleIt 21
             """
-            |> withLangVersionPreview
-            |> withReferences [csLib]
-            |> typecheckResults
-
-        let errors =
-            checkResults.Diagnostics
-            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
-
-        Assert.Empty(errors)
+        |> shouldTypecheckWithCSharpExtension csLib
 
     [<Fact>]
     let ``C#-style extension on open generic array resolves via SRTP — Append`` () =
@@ -3976,8 +3982,7 @@ namespace CsExt {
             |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
             |> withName "csLib"
 
-        let checkResults =
-            FSharp """
+        FSharp """
 module Consumer
 
 open CsExt
@@ -3986,15 +3991,7 @@ let inline append (a: ^T) (b: int[]) = (^T : (member Append : int[] -> int[]) (a
 
 let result = append [|1; 2|] [|3; 4|]
             """
-            |> withLangVersionPreview
-            |> withReferences [csLib]
-            |> typecheckResults
-
-        let errors =
-            checkResults.Diagnostics
-            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
-
-        Assert.Empty(errors)
+        |> shouldTypecheckWithCSharpExtension csLib
 
     [<Fact>]
     let ``C#-style extension on unconstrained generic resolves via SRTP — Stringify`` () =
@@ -4011,8 +4008,7 @@ namespace CsExt {
             |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
             |> withName "csLib"
 
-        let checkResults =
-            FSharp """
+        FSharp """
 module Consumer
 
 open CsExt
@@ -4022,15 +4018,7 @@ let inline stringify (x: ^T) = (^T : (member Stringify : unit -> string) x)
 let r1 = stringify 42
 let r2 = stringify "hello"
             """
-            |> withLangVersionPreview
-            |> withReferences [csLib]
-            |> typecheckResults
-
-        let errors =
-            checkResults.Diagnostics
-            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
-
-        Assert.Empty(errors)
+        |> shouldTypecheckWithCSharpExtension csLib
 
     [<Fact>]
     let ``C#-style extension with multiple type parameters resolves via SRTP — Select`` () =
@@ -4051,8 +4039,7 @@ namespace CsExt {
             |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
             |> withName "csLib"
 
-        let checkResults =
-            FSharp """
+        FSharp """
 module Consumer
 
 open System
@@ -4062,15 +4049,7 @@ let inline select (arr: ^T) (f: Func<int, string>) = (^T : (member Select : Func
 
 let result = select [|1; 2; 3|] (Func<int, string>(fun x -> string x))
             """
-            |> withLangVersionPreview
-            |> withReferences [csLib]
-            |> typecheckResults
-
-        let errors =
-            checkResults.Diagnostics
-            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
-
-        Assert.Empty(errors)
+        |> shouldTypecheckWithCSharpExtension csLib
 
     [<Fact>]
     let ``C#-style extension on nullable value type resolves via SRTP — OrDefault`` () =
@@ -4087,8 +4066,7 @@ namespace CsExt {
             |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
             |> withName "csLib"
 
-        let checkResults =
-            FSharp """
+        FSharp """
 module Consumer
 
 open System
@@ -4102,15 +4080,7 @@ let r1 = orDefault v1 0
 let v2 = Nullable<int>()
 let r2 = orDefault v2 99
             """
-            |> withLangVersionPreview
-            |> withReferences [csLib]
-            |> typecheckResults
-
-        let errors =
-            checkResults.Diagnostics
-            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
-
-        Assert.Empty(errors)
+        |> shouldTypecheckWithCSharpExtension csLib
 
     [<Fact>]
     let ``C#-style extension on reference type resolves via SRTP — Safe on obj`` () =
@@ -4127,8 +4097,7 @@ namespace CsExt {
             |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
             |> withName "csLib"
 
-        let checkResults =
-            FSharp """
+        FSharp """
 module Consumer
 
 open CsExt
@@ -4137,15 +4106,7 @@ let inline safe (x: ^T) = (^T : (member Safe : unit -> string) x)
 
 let r1 = safe (box 42)
             """
-            |> withLangVersionPreview
-            |> withReferences [csLib]
-            |> typecheckResults
-
-        let errors =
-            checkResults.Diagnostics
-            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
-
-        Assert.Empty(errors)
+        |> shouldTypecheckWithCSharpExtension csLib
 
     [<Fact>]
     let ``C#-style extension on concrete generic instantiation resolves via SRTP — List Sum`` () =
@@ -4165,8 +4126,7 @@ namespace CsExt {
             |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
             |> withName "csLib"
 
-        let checkResults =
-            FSharp """
+        FSharp """
 module Consumer
 
 open System.Collections.Generic
@@ -4177,12 +4137,4 @@ let inline sum (x: ^T) = (^T : (member Sum : unit -> int) x)
 let list = List<int>([| 10; 20; 30 |])
 let result = sum list
             """
-            |> withLangVersionPreview
-            |> withReferences [csLib]
-            |> typecheckResults
-
-        let errors =
-            checkResults.Diagnostics
-            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
-
-        Assert.Empty(errors)
+        |> shouldTypecheckWithCSharpExtension csLib
