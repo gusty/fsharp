@@ -2214,20 +2214,35 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
                 // the receiver which maps to the method's raw first parameter.
                 let minst =
                     let hasUnsolved = minst |> List.exists (fun ty -> match stripTyEqnsAndMeasureEqns g ty with TType_var(tp, _) -> not tp.IsSolved | _ -> false)
-                    if hasUnsolved then
-                        // Unsolved typars in minst arise when GetParamTypes drops the 'this'
-                        // parameter for C#-style extensions, preventing CanMemberSigsMatchUpToCheck
-                        // from constraining method type parameters that appear only in the
-                        // 'this' parameter (e.g., T in Stringify<T>(this T value)).
+                    if hasUnsolved && extOpt.IsSome then
+                        // Unsolved typars arise when GetParamTypes drops the 'this' parameter
+                        // for C#-style extensions, preventing CanMemberSigsMatchUpToCheck from
+                        // constraining method type parameters that appear only in the 'this'
+                        // parameter (e.g., T in Stringify<T>(this T value)).
                         //
-                        // For multi-type-parameter methods (e.g., Select<TSource, TResult>),
-                        // typars that appear in non-'this' parameters (TResult in the Func arg)
-                        // ARE solved by CanMemberSigsMatchUpToCheck. Only typars exclusive to
-                        // the 'this' parameter remain unsolved. Since the 'this' parameter type
-                        // maps to origTy, origTy is the correct substitution for these typars.
-                        minst |> List.map (fun ty ->
+                        // Only substitute typars that actually appear in the method's first
+                        // parameter (the 'this' parameter in IL). Typars in other parameters
+                        // should already be solved; if not, leave them as-is.
+                        let thisParamTyVarIndices =
+                            match mref.ArgTypes with
+                            | firstArgTy :: _ ->
+                                // Collect type variable indices used in the 'this' parameter type.
+                                // IL type variables are referenced by index (!!0, !!1, etc.)
+                                let rec collectTyVarIndices acc ilTy =
+                                    match ilTy with
+                                    | ILType.TypeVar idx -> Set.add (int idx) acc
+                                    | ILType.Array(_, elTy) -> collectTyVarIndices acc elTy
+                                    | ILType.Boxed tspec | ILType.Value tspec ->
+                                        tspec.GenericArgs |> List.fold collectTyVarIndices acc
+                                    | ILType.Byref innerTy | ILType.Ptr innerTy ->
+                                        collectTyVarIndices acc innerTy
+                                    | _ -> acc
+                                collectTyVarIndices Set.empty firstArgTy
+                            | [] -> Set.empty
+                        minst |> List.mapi (fun i ty ->
                             match stripTyEqnsAndMeasureEqns g ty with
-                            | TType_var(tp, _) when not tp.IsSolved -> origTy
+                            | TType_var(tp, _) when not tp.IsSolved && Set.contains i thisParamTyVarIndices ->
+                                origTy
                             | other -> other)
                     else
                         minst |> List.map (stripTyEqnsAndMeasureEqns g)
