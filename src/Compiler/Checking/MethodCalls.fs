@@ -2215,11 +2215,16 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
                 let minst =
                     let hasUnsolved = minst |> List.exists (fun ty -> match stripTyEqnsAndMeasureEqns g ty with TType_var(tp, _) -> not tp.IsSolved | _ -> false)
                     if hasUnsolved then
-                        // Solve each unsolved typar in minst by using the apparent enclosing type.
-                        // For C#-style extensions where the 'this' parameter type IS the method's
-                        // type parameter (e.g., T in Stringify<T>(this T)), origTy provides the
-                        // concrete type. For multi-param methods, only typars from the 'this'
-                        // parameter are affected (others are solved by CanMemberSigsMatchUpToCheck).
+                        // Unsolved typars in minst arise when GetParamTypes drops the 'this'
+                        // parameter for C#-style extensions, preventing CanMemberSigsMatchUpToCheck
+                        // from constraining method type parameters that appear only in the
+                        // 'this' parameter (e.g., T in Stringify<T>(this T value)).
+                        //
+                        // For multi-type-parameter methods (e.g., Select<TSource, TResult>),
+                        // typars that appear in non-'this' parameters (TResult in the Func arg)
+                        // ARE solved by CanMemberSigsMatchUpToCheck. Only typars exclusive to
+                        // the 'this' parameter remain unsolved. Since the 'this' parameter type
+                        // maps to origTy, origTy is the correct substitution for these typars.
                         minst |> List.map (fun ty ->
                             match stripTyEqnsAndMeasureEqns g ty with
                             | TType_var(tp, _) when not tp.IsSolved -> origTy
@@ -2286,11 +2291,6 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
             let receiverArgOpt =
                 if not minfo.IsCSharpStyleExtensionMember then receiverArgOpt
                 else
-                    if receiverArgOpt.IsSome then
-                        System.IO.File.AppendAllText("/tmp/ilxgen_debug.txt",
-                            sprintf "CsExt receiver: isByref=%b, expr=%s\n"
-                                (isByrefTy g (tyOfExpr g receiverArgOpt.Value))
-                                (sprintf "%+A" receiverArgOpt.Value |> (fun s -> if s.Length > 500 then s.[..499] + "..." else s)))
                     match receiverArgOpt with
                     | Some (Expr.Op(TOp.LValueOp(LAddrOf _, vref), _, [], m2)) ->
                         Some (Expr.Val(vref, NormalValUse, m2))
@@ -2298,6 +2298,9 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
                         when valRefEq g (mkLocalValRef tmp) vref2 ->
                         Some innerExpr
                     | Some receiver when isByrefTy g (tyOfExpr g receiver) ->
+                        // General fallback for other byref forms: bind the byref to a
+                        // compiler-generated local, then dereference via LByrefGet to
+                        // convert byref<T> → T for the static extension method call.
                         let tmp, _ = mkCompGenLocal m "csExtReceiver" (tyOfExpr g receiver)
                         Some (mkCompGenLet m tmp receiver (mkAddrGet m (mkLocalValRef tmp)))
                     | _ -> receiverArgOpt

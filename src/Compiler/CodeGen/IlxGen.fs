@@ -3083,13 +3083,7 @@ and GenExprAux (cenv: cenv) (cgbuf: CodeGenBuffer) eenv expr (sequel: sequel) =
             // application of local type functions with type parameters = measure types and body = local value - inline the body
             GenExpr cenv cgbuf eenv v sequel
 
-        | Expr.App(f, fty, tyargs, curriedArgs, m) ->
-            match f with
-            | Expr.Op(TOp.ILCall(_, _, _, _, _, _, _, ilMethRef, _, _, _), _, _, _) when ilMethRef.Name = "Double" ->
-                System.IO.File.AppendAllText("/tmp/ilxgen_debug.txt",
-                    sprintf "GenExprAux App(ILCall Double): tyargs=%d, curriedArgs=%d\n  f=%s\n" (List.length tyargs) (List.length curriedArgs) (sprintf "%+A" f |> (fun s -> if s.Length > 400 then s.[..399] + "..." else s)))
-            | _ -> ()
-            GenApp cenv cgbuf eenv (f, fty, tyargs, curriedArgs, m) sequel
+        | Expr.App(f, fty, tyargs, curriedArgs, m) -> GenApp cenv cgbuf eenv (f, fty, tyargs, curriedArgs, m) sequel
 
         | Expr.Val(v, _, m) -> GenGetVal cenv cgbuf eenv (v, m) sequel
 
@@ -5617,7 +5611,6 @@ and GenTraitCall (cenv: cenv) cgbuf eenv (traitInfo: TraitConstraintInfo, argExp
             GenExpr cenv cgbuf eenv replacementExpr sequel
         | Some expr ->
             let expr = cenv.optimizeDuringCodeGen false expr
-            GenExpr cenv cgbuf eenv expr sequel
             GenExpr cenv cgbuf eenv expr sequel
 
 //--------------------------------------------------------------------------
