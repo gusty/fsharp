@@ -1033,7 +1033,14 @@ let TakeObjAddrForMethodCall g amap (minfo: MethInfo) isMutable m staticTyOpt ob
 
 /// Build an expression node that is a call to a .NET method. 
 let BuildILMethInfoCall g amap m isProp (minfo: ILMethInfo) valUseFlags minst direct args = 
-    let isStruct = isStructTy g minfo.ApparentEnclosingType
+    // For C#-style extension methods, the declaring type is the static helper class
+    // (a reference type), not the apparent/extended type. Use the declaring type for
+    // isStruct to avoid emitting value-type boxity for a reference-type method spec.
+    let isStruct =
+        if minfo.IsILExtensionMethod then
+            false
+        else
+            isStructTy g minfo.ApparentEnclosingType
     let ctor = minfo.IsConstructor
     if minfo.IsClassConstructor then 
         error (InternalError (minfo.ILName+": cannot call a class constructor", m))
@@ -2263,8 +2270,9 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
             | None -> convertedArgs
 
         // Fix bug 1281: If we resolve to an instance method on a struct and we haven't yet taken 
-        // the address of the object then go do that 
-        if minfo.IsStruct && minfo.IsInstance then 
+        // the address of the object then go do that.
+        // Skip for C#-style extension methods: they are static in IL and take the receiver by value.
+        if minfo.IsStruct && minfo.IsInstance && not minfo.IsCSharpStyleExtensionMember then 
             match argExprs with
             | h :: t when not (isByrefTy g (tyOfExpr g h)) ->
                 let wrap, h', _readonly, _writeonly = mkExprAddrOfExpr g true false PossiblyMutates h None m 

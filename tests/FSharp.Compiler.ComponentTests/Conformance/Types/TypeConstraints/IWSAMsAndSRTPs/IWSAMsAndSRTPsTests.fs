@@ -3928,9 +3928,9 @@ if result.[3] <> "c" then failwith (sprintf "Expected result.[3]=\"c\" but got %
     // compiler. These tests verify that SRTP constraint resolution finds
     // C#-style extension methods, generates correct code, and runs correctly.
     //
-    // Note: Extensions on value-type receivers (int, Nullable<T>, unconstrained T)
-    // produce InvalidProgramException at runtime due to an IlxGen IL emission issue
-    // with constrained calls on value types. Those tests use typecheck-only verification.
+    // Note: C#-style extensions on value-type receivers (int, Nullable<T>,
+    // unconstrained generic T) produce InvalidProgramException at runtime.
+    // Root cause is under investigation. Those tests use typecheck-only verification.
 
     let private shouldTypecheckWithCSharpExtension csLib fsharpSource =
         let checkResults =
@@ -3945,7 +3945,7 @@ if result.[3] <> "c" then failwith (sprintf "Expected result.[3]=\"c\" but got %
 
     [<Fact>]
     let ``C#-style extension on concrete non-generic type resolves via SRTP — int Double`` () =
-        // Typecheck-only: value-type receiver emits invalid IL (constrained call issue)
+        // Typecheck-only: value-type receiver produces InvalidProgramException at runtime
         let csLib =
             CSharp """
 namespace CsExt {
@@ -4005,7 +4005,7 @@ if result <> [|1; 2; 3; 4|] then failwith (sprintf "Expected [|1;2;3;4|] but got
 
     [<Fact>]
     let ``C#-style extension on unconstrained generic resolves via SRTP — Stringify`` () =
-        // Typecheck-only: unconstrained T instantiated with value type emits invalid IL
+        // Typecheck-only: unconstrained T instantiated with value type produces InvalidProgramException
         let csLib =
             CSharp """
 namespace CsExt {
@@ -4069,7 +4069,7 @@ if result <> [|"1"; "2"; "3"|] then failwith (sprintf "Expected [|1;2;3|] as str
 
     [<Fact>]
     let ``C#-style extension on nullable value type resolves via SRTP — OrDefault`` () =
-        // Typecheck-only: Nullable<T> (value-type) receiver emits invalid IL
+        // Typecheck-only: Nullable<T> (value-type) receiver produces InvalidProgramException
         let csLib =
             CSharp """
 namespace CsExt {
