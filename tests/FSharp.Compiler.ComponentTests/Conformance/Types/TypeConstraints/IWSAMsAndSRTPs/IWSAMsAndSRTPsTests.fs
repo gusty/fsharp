@@ -4163,3 +4163,192 @@ if result <> 60 then failwith (sprintf "Expected 60 but got %d" result)
         |> withReferences [csLib]
         |> compileAndRun
         |> shouldSucceed
+
+    // ---- Adversarial review gap tests ----
+
+    [<Fact>]
+    let ``adversarial — C#-style extension on user-defined struct resolves via SRTP`` () =
+        let csLib =
+            CSharp """
+namespace CsExt {
+    public struct MyVec {
+        public int X;
+        public int Y;
+        public MyVec(int x, int y) { X = x; Y = y; }
+    }
+    public static class VecExtensions {
+        public static int Magnitude(this MyVec v) { return v.X * v.X + v.Y * v.Y; }
+    }
+}
+            """
+            |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
+            |> withName "csLib"
+
+        FSharp """
+module Consumer
+
+open CsExt
+
+let inline mag (v: ^T) = (^T : (member Magnitude : unit -> int) v)
+
+let r1 = mag (MyVec(3, 4))
+if r1 <> 25 then failwith (sprintf "Expected 25 but got %d" r1)
+
+let r2 = mag (MyVec(0, 0))
+if r2 <> 0 then failwith (sprintf "Expected 0 but got %d" r2)
+            """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [csLib]
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``adversarial — Extension operator on DU type resolves via SRTP`` () =
+        FSharp """
+module TestDUExtOp
+
+type Tree<'T> = Leaf of 'T | Node of Tree<'T> * Tree<'T>
+
+type Tree<'T> with
+    static member (+) (a, b) = Node(a, b)
+
+let inline combine a b = a + b
+
+let t1 = Leaf 1
+let t2 = Leaf 2
+let t3 = Leaf 3
+
+let combined = combine t1 t2
+match combined with
+| Node(Leaf 1, Leaf 2) -> ()
+| other -> failwith (sprintf "Expected Node(Leaf 1, Leaf 2) but got %A" other)
+
+// Chain: (t1 + t2) + t3
+let chained = combine (combine t1 t2) t3
+match chained with
+| Node(Node(Leaf 1, Leaf 2), Leaf 3) -> ()
+| other -> failwith (sprintf "Expected Node(Node(Leaf 1, Leaf 2), Leaf 3) but got %A" other)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``adversarial — Mixed built-in + extension constraints in single inline function`` () =
+        FSharp $"""
+module TestMixedOps
+
+{stringRepeatExtDef}
+
+let inline mixedOp x y n = (x + y) * n
+
+let r1 = mixedOp "hello" " world" 2
+if r1 <> "hello worldhello world" then failwith (sprintf "Expected 'hello worldhello world' but got '%%s'" r1)
+
+let r2 = mixedOp "ab" "cd" 3
+if r2 <> "abcdabcdabcd" then failwith (sprintf "Expected 'abcdabcdabcd' but got '%%s'" r2)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``adversarial — non-inline wrapper of SRTP extension operator resolves concretely`` () =
+        let library =
+            FSharp $"""
+module ExtLib
+
+{stringRepeatExtDef}
+
+let inline repeatInline s n = s * n
+let repeatConcrete (s: string) (n: int) = repeatInline s n
+            """
+            |> withName "ExtLib"
+            |> withLangVersionPreview
+
+        FSharp """
+module Consumer
+
+open ExtLib
+
+let r1 = repeatConcrete "ab" 3
+if r1 <> "ababab" then failwith (sprintf "Expected 'ababab' but got '%s'" r1)
+
+let r2 = repeatConcrete "x" 1
+if r2 <> "x" then failwith (sprintf "Expected 'x' but got '%s'" r2)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``adversarial — Extension operator in task CE`` () =
+        FSharp $"""
+module TestTaskCE
+
+{stringRepeatExtDef}
+
+let inline repeatStr s n = s * n
+
+let result = (task {{ return repeatStr "x" 3 }}).Result
+if result <> "xxx" then failwith (sprintf "Expected 'xxx' but got '%%s'" result)
+
+let result2 = (task {{ return repeatStr "ab" 2 }}).Result
+if result2 <> "abab" then failwith (sprintf "Expected 'abab' but got '%%s'" result2)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``adversarial — Extension operator on option resolves via SRTP — cross-assembly with optimize minus`` () =
+        let library = optionMapExtLib
+
+        FSharp """
+module Consumer
+
+open ExtLib
+
+let result = Some 7 |>> (fun n -> n * 3)
+match result with
+| Some 21 -> ()
+| other -> failwith (sprintf "Expected Some 21 but got %A" other)
+
+let result2 = None |>> (fun n -> n + 1)
+match result2 with
+| None -> ()
+| other -> failwith (sprintf "Expected None but got %A" other)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> withNoOptimize
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``adversarial — Signature file constraining inline SRTP with extension operator`` () =
+        let fsiSource = """
+module ExtLib
+
+val repeatStr: s: string -> n: int -> string
+"""
+        let fsSource = $"""
+module ExtLib
+
+{stringRepeatExtDef}
+
+let inline repeatInline s n = s * n
+let repeatStr (s: string) (n: int) : string = repeatInline s n
+"""
+        Fsi fsiSource
+        |> withAdditionalSourceFile (FsSource fsSource)
+        |> withLangVersionPreview
+        |> compile
+        |> shouldSucceed
