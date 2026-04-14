@@ -2202,6 +2202,14 @@ and MemberConstraintSolutionOfMethInfo css m minfo minst staticTyOpt =
     // to prevent unused parameter warning
     ignore css
 #endif
+    // Strip type variable indirections in minst so that the stored solution contains
+    // concrete types rather than fresh typars whose solutions may be undone by traces.
+    // For C#-style extension methods where the 'this' parameter type involves method type
+    // parameters (e.g., Stringify<T>(this T value)), those typars may never get solved
+    // because GetParamTypes drops the 'this' parameter. Use the apparent enclosing type
+    // (origTy) to derive their values by matching against the method's raw first parameter.
+    let g = css.g
+    let minst = minst |> List.map (stripTyEqnsAndMeasureEqns g)
     match minfo with 
     | ILMeth(_, ilMeth, _) ->
        let mref = IL.mkRefToILMethod (ilMeth.DeclaringTyconRef.CompiledRepresentationForNamedType, ilMeth.RawMetadata)

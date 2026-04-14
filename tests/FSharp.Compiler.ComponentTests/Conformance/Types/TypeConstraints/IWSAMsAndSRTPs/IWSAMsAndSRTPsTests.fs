@@ -3993,8 +3993,6 @@ if result <> [|1; 2; 3; 4|] then failwith (sprintf "Expected [|1;2;3;4|] but got
 
     [<Fact>]
     let ``C#-style extension on unconstrained generic resolves via SRTP — Stringify`` () =
-        // Typecheck-only: unconstrained generic T with value-type instantiation produces
-        // InvalidProgramException due to address-taking form not handled by LAddrOf stripping.
         let csLib =
             CSharp """
 namespace CsExt {
@@ -4008,8 +4006,7 @@ namespace CsExt {
             |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
             |> withName "csLib"
 
-        let checkResults =
-            FSharp """
+        FSharp """
 module Consumer
 
 open CsExt
@@ -4017,17 +4014,15 @@ open CsExt
 let inline stringify (x: ^T) = (^T : (member Stringify : unit -> string) x)
 
 let r1 = stringify 42
+if r1 <> "42" then failwith (sprintf "Expected '42' but got '%s'" r1)
 let r2 = stringify "hello"
+if r2 <> "hello" then failwith (sprintf "Expected 'hello' but got '%s'" r2)
             """
-            |> withLangVersionPreview
-            |> withReferences [csLib]
-            |> typecheckResults
-
-        let errors =
-            checkResults.Diagnostics
-            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
-
-        Assert.Empty(errors)
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [csLib]
+        |> compileAndRun
+        |> shouldSucceed
 
     [<Fact>]
     let ``C#-style extension with multiple type parameters resolves via SRTP — Select`` () =

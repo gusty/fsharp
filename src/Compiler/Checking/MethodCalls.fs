@@ -2206,6 +2206,26 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
             match sln with 
             | ILMethSln(origTy, extOpt, mref, minst, staticTyOpt) ->
                 let metadataTy = convertToTypeWithMetadataIfPossible g origTy
+                // For ILMethSln with C#-style extensions, minst may contain unsolved type
+                // variables. The 'this' parameter is dropped by GetParamTypes, so method type
+                // parameters that appear only in the 'this' parameter (e.g., T in
+                // Stringify<T>(this T value)) are never constrained by CanMemberSigsMatchUpToCheck.
+                // Fix by solving unsolved typars against the trait's argument types, including
+                // the receiver which maps to the method's raw first parameter.
+                let minst =
+                    let hasUnsolved = minst |> List.exists (fun ty -> match stripTyEqnsAndMeasureEqns g ty with TType_var(tp, _) -> not tp.IsSolved | _ -> false)
+                    if hasUnsolved then
+                        // Solve each unsolved typar in minst by using the apparent enclosing type.
+                        // For C#-style extensions where the 'this' parameter type IS the method's
+                        // type parameter (e.g., T in Stringify<T>(this T)), origTy provides the
+                        // concrete type. For multi-param methods, only typars from the 'this'
+                        // parameter are affected (others are solved by CanMemberSigsMatchUpToCheck).
+                        minst |> List.map (fun ty ->
+                            match stripTyEqnsAndMeasureEqns g ty with
+                            | TType_var(tp, _) when not tp.IsSolved -> origTy
+                            | other -> other)
+                    else
+                        minst |> List.map (stripTyEqnsAndMeasureEqns g)
                 let ilMethInfo =
                     match extOpt with
                     | None ->
@@ -2261,15 +2281,26 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
             // For C#-style extension methods (static in IL), the receiver may have been
             // address-taken by the type checker for struct instance method calls. Strip
             // the address-taking back to a plain value since the static method expects a
-            // by-value argument. Handle both direct LAddrOf(x) and let tmp = e in &tmp.
+            // by-value argument. Handle direct LAddrOf(x), let tmp = e in &tmp, and
+            // any other byref form by inserting a dereference (LByrefGet).
             let receiverArgOpt =
-                match receiverArgOpt with
-                | Some (Expr.Op(TOp.LValueOp(LAddrOf _, vref), _, [], m2)) when minfo.IsCSharpStyleExtensionMember ->
-                    Some (Expr.Val(vref, NormalValUse, m2))
-                | Some (Expr.Let(TBind(tmp, innerExpr, _), Expr.Op(TOp.LValueOp(LAddrOf _, vref2), _, [], _), _, _))
-                    when minfo.IsCSharpStyleExtensionMember && valRefEq g (mkLocalValRef tmp) vref2 ->
-                    Some innerExpr
-                | _ -> receiverArgOpt
+                if not minfo.IsCSharpStyleExtensionMember then receiverArgOpt
+                else
+                    if receiverArgOpt.IsSome then
+                        System.IO.File.AppendAllText("/tmp/ilxgen_debug.txt",
+                            sprintf "CsExt receiver: isByref=%b, expr=%s\n"
+                                (isByrefTy g (tyOfExpr g receiverArgOpt.Value))
+                                (sprintf "%+A" receiverArgOpt.Value |> (fun s -> if s.Length > 500 then s.[..499] + "..." else s)))
+                    match receiverArgOpt with
+                    | Some (Expr.Op(TOp.LValueOp(LAddrOf _, vref), _, [], m2)) ->
+                        Some (Expr.Val(vref, NormalValUse, m2))
+                    | Some (Expr.Let(TBind(tmp, innerExpr, _), Expr.Op(TOp.LValueOp(LAddrOf _, vref2), _, [], _), _, _))
+                        when valRefEq g (mkLocalValRef tmp) vref2 ->
+                        Some innerExpr
+                    | Some receiver when isByrefTy g (tyOfExpr g receiver) ->
+                        let tmp, _ = mkCompGenLocal m "csExtReceiver" (tyOfExpr g receiver)
+                        Some (mkCompGenLet m tmp receiver (mkAddrGet m (mkLocalValRef tmp)))
+                    | _ -> receiverArgOpt
 
             // For methods taking no arguments, 'argExprs' will be a single unit expression here
             let argExprs = 
