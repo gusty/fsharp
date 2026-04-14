@@ -2218,7 +2218,7 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
                         // Resolve the method reference against the declaring type's metadata.
                         let actualTyconRef = ImportILTypeRef amap m ilActualTypeRef
                         let mdef = resolveILMethodRef actualTyconRef.ILTyconRawMetadata mref
-                        MethInfo.CreateILExtensionMeth(amap, m, origTy, actualTyconRef, None, mdef)
+                        MethInfo.CreateILExtensionMeth(amap, m, origTy, actualTyconRef, Some 0UL, mdef)
                 Choice1Of5 (ilMethInfo, minst, staticTyOpt)
 
             | FSMethSln(ty, vref, minst, staticTyOpt) ->
@@ -2257,6 +2257,19 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
                     | h :: t -> Some h, t
                     | argExprs -> None, argExprs
                 else None, argExprs
+
+            // For C#-style extension methods (static in IL), the receiver may have been
+            // address-taken by the type checker for struct instance method calls. Strip
+            // the address-taking back to a plain value since the static method expects a
+            // by-value argument. Handle both direct LAddrOf(x) and let tmp = e in &tmp.
+            let receiverArgOpt =
+                match receiverArgOpt with
+                | Some (Expr.Op(TOp.LValueOp(LAddrOf _, vref), _, [], m2)) when minfo.IsCSharpStyleExtensionMember ->
+                    Some (Expr.Val(vref, NormalValUse, m2))
+                | Some (Expr.Let(TBind(tmp, innerExpr, _), Expr.Op(TOp.LValueOp(LAddrOf _, vref2), _, [], _), _, _))
+                    when minfo.IsCSharpStyleExtensionMember && valRefEq g (mkLocalValRef tmp) vref2 ->
+                    Some innerExpr
+                | _ -> receiverArgOpt
 
             // For methods taking no arguments, 'argExprs' will be a single unit expression here
             let argExprs = 

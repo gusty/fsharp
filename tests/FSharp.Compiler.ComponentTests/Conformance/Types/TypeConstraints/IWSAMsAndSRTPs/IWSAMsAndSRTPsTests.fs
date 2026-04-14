@@ -3927,25 +3927,9 @@ if result.[3] <> "c" then failwith (sprintf "Expected result.[3]=\"c\" but got %
     // C#-style extension methods go through ILMeth (not FSMeth) in the
     // compiler. These tests verify that SRTP constraint resolution finds
     // C#-style extension methods, generates correct code, and runs correctly.
-    //
-    // Note: C#-style extensions on value-type receivers (int, Nullable<T>,
-    // unconstrained generic T) produce InvalidProgramException at runtime.
-    // Root cause is under investigation. Those tests use typecheck-only verification.
-
-    let private shouldTypecheckWithCSharpExtension csLib fsharpSource =
-        let checkResults =
-            fsharpSource
-            |> withLangVersionPreview
-            |> withReferences [csLib]
-            |> typecheckResults
-        let errors =
-            checkResults.Diagnostics
-            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
-        Assert.Empty(errors)
 
     [<Fact>]
     let ``C#-style extension on concrete non-generic type resolves via SRTP — int Double`` () =
-        // Typecheck-only: value-type receiver produces InvalidProgramException at runtime
         let csLib =
             CSharp """
 namespace CsExt {
@@ -3967,7 +3951,11 @@ let inline doubleIt (x: ^T) = (^T : (member Double : unit -> int) x)
 let result = doubleIt 21
 if result <> 42 then failwith (sprintf "Expected 42 but got %d" result)
             """
-        |> shouldTypecheckWithCSharpExtension csLib
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [csLib]
+        |> compileAndRun
+        |> shouldSucceed
 
     [<Fact>]
     let ``C#-style extension on open generic array resolves via SRTP — Append`` () =
@@ -4005,7 +3993,8 @@ if result <> [|1; 2; 3; 4|] then failwith (sprintf "Expected [|1;2;3;4|] but got
 
     [<Fact>]
     let ``C#-style extension on unconstrained generic resolves via SRTP — Stringify`` () =
-        // Typecheck-only: unconstrained T instantiated with value type produces InvalidProgramException
+        // Typecheck-only: unconstrained generic T with value-type instantiation produces
+        // InvalidProgramException due to address-taking form not handled by LAddrOf stripping.
         let csLib =
             CSharp """
 namespace CsExt {
@@ -4019,7 +4008,8 @@ namespace CsExt {
             |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
             |> withName "csLib"
 
-        FSharp """
+        let checkResults =
+            FSharp """
 module Consumer
 
 open CsExt
@@ -4029,7 +4019,15 @@ let inline stringify (x: ^T) = (^T : (member Stringify : unit -> string) x)
 let r1 = stringify 42
 let r2 = stringify "hello"
             """
-        |> shouldTypecheckWithCSharpExtension csLib
+            |> withLangVersionPreview
+            |> withReferences [csLib]
+            |> typecheckResults
+
+        let errors =
+            checkResults.Diagnostics
+            |> Array.filter (fun d -> d.Severity = FSharpDiagnosticSeverity.Error)
+
+        Assert.Empty(errors)
 
     [<Fact>]
     let ``C#-style extension with multiple type parameters resolves via SRTP — Select`` () =
@@ -4069,7 +4067,6 @@ if result <> [|"1"; "2"; "3"|] then failwith (sprintf "Expected [|1;2;3|] as str
 
     [<Fact>]
     let ``C#-style extension on nullable value type resolves via SRTP — OrDefault`` () =
-        // Typecheck-only: Nullable<T> (value-type) receiver produces InvalidProgramException
         let csLib =
             CSharp """
 namespace CsExt {
@@ -4093,11 +4090,17 @@ let inline orDefault (x: ^T) (d: int) = (^T : (member OrDefault : int -> int) (x
 
 let v1 = Nullable<int>(7)
 let r1 = orDefault v1 0
+if r1 <> 7 then failwith (sprintf "Expected 7 but got %d" r1)
 
 let v2 = Nullable<int>()
 let r2 = orDefault v2 99
+if r2 <> 99 then failwith (sprintf "Expected 99 but got %d" r2)
             """
-        |> shouldTypecheckWithCSharpExtension csLib
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [csLib]
+        |> compileAndRun
+        |> shouldSucceed
 
     [<Fact>]
     let ``C#-style extension on reference type resolves via SRTP — Safe on obj`` () =
