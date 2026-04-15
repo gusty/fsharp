@@ -1809,6 +1809,8 @@ type TraitConstraintInfo =
     /// Get the trait context (extension method scope) associated with this constraint
     member TraitContext: ITraitContext option
 
+    member CloneWithFreshSolution: unit -> TraitConstraintInfo
+
     /// The member kind is irrelevant to the logical properties of a trait. However it adjusts
     /// the extension property MemberDisplayNameCore
     member WithMemberKind: SynMemberKind -> TraitConstraintInfo

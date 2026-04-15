@@ -2645,6 +2645,10 @@ type TraitConstraintInfo =
 
     member x.TraitContext = (let (TTrait(traitCtxt = tc)) = x in tc)
 
+    member x.CloneWithFreshSolution() =
+        let (TTrait(a, b, c, d, e, f, sln, h)) = x
+        TTrait(a, b, c, d, e, f, ref sln.Value, h)
+
     member x.WithMemberKind(kind) = (let (TTrait(a, b, c, d, e, f, g, h)) = x in TTrait(a, b, { c with MemberKind=kind }, d, e, f, g, h))
 
     member x.WithSupportTypes(tys) = (let (TTrait(_, b, c, d, e, f, g, h)) = x in TTrait(tys, b, c, d, e, f, g, h))
