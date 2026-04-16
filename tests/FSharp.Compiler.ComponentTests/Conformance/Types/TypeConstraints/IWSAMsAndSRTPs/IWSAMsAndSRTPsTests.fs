@@ -5013,3 +5013,53 @@ if result <> 21 then failwith (sprintf "Expected 21 got %d" result)
         |> withReferences [library]
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``Internal extension from referenced assembly not resolved via SRTP`` () =
+        // C3: Verify that internal extension members don't leak across assembly boundaries.
+        // CreateImplFileTraitContext uses AccessibleFromEverywhere but the constraint solver
+        // must still filter by actual accessibility.
+        let library =
+            FSharp
+                """
+module ExtLib
+
+module internal InternalExts =
+    type System.String with
+        static member Repeat(s: string, n: int) = System.String.Concat(System.Linq.Enumerable.Repeat(s, n))
+            """
+            |> withLangVersionPreview
+            |> withName "ExtLib"
+
+        // Without optimization
+        FSharp
+            """
+module Consumer
+open ExtLib
+
+let inline repeatStr (s: ^T) (n: int) = (^T : (static member Repeat: ^T * int -> ^T) (s, n))
+let r = repeatStr "ha" 3
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> withNoOptimize
+        |> compile
+        |> shouldFail
+        |> ignore
+
+        // With optimization — same result expected
+        FSharp
+            """
+module Consumer
+open ExtLib
+
+let inline repeatStr (s: ^T) (n: int) = (^T : (static member Repeat: ^T * int -> ^T) (s, n))
+let r = repeatStr "ha" 3
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> withOptimize
+        |> compile
+        |> shouldFail
