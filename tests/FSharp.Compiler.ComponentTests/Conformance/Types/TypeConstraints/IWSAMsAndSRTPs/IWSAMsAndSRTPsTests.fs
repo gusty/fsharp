@@ -4619,3 +4619,50 @@ let result : int = Foo.op_Addition({ X = 1 }, { X = 2 })
         |> withLangVersionPreview
         |> compile
         |> shouldFail
+
+    [<Fact>]
+    let ``Witness quotation: C#-style extension on int evaluates in quotation`` () =
+        // Q4: C#-style extension resolved via SRTP inside <@ @>.
+        // The quotation must reference the declaring static class (IntExtensions),
+        // not System.Int32, so that EvaluateQuotation can find the method via reflection.
+        let csLib =
+            CSharp
+                """
+namespace CsExt {
+    public static class IntExtensions {
+        public static int Triple(this int x) { return x * 3; }
+    }
+}
+            """
+            |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
+            |> withName "csLib"
+
+        FSharp
+            """
+module TestQ4
+
+open CsExt
+
+let inline tripleIt (x: ^T) = (^T : (member Triple : unit -> int) x)
+
+// Direct call — should work (already tested elsewhere)
+let direct = tripleIt 7
+if direct <> 21 then failwith (sprintf "Direct: expected 21 got %d" direct)
+
+// Quotation — the key test
+// The quotation preserves the call to the inline wrapper (tripleIt) with
+// witness arguments, consistent with how all inline SRTP functions are quoted.
+let q = <@ tripleIt 7 @>
+
+// Evaluate the quotation at runtime via reflection.
+// This exercises witness passing: the witness must resolve to
+// IntExtensions.Triple (the C#-style extension declaring type),
+// not System.Int32, for reflection to find the method.
+let result = Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation q :?> int
+if result <> 21 then failwith (sprintf "Quotation eval: expected 21 got %d" result)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [csLib]
+        |> compileAndRun
+        |> shouldSucceed
