@@ -4734,3 +4734,41 @@ if result <> [|1; 2; 3; 4|] then failwith (sprintf "Quotation eval: expected [|1
         |> withReferences [csLib]
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``Witness quotation: F# extrinsic extension on String cross-assembly evaluates in quotation`` () =
+        // Q2: Cross-assembly F# extension operator on System.String inside <@ @>.
+        // FSMethSln path: quotation must find the method on the library module type.
+        let library =
+            FSharp
+                """
+module ExtLib
+type System.String with
+    static member ( * ) (s: string, n: int) = System.String.Concat(System.Linq.Enumerable.Repeat(s, n))
+            """
+            |> asLibrary
+            |> withLangVersionPreview
+
+        FSharp
+            """
+module Consumer
+open ExtLib
+
+let inline repeatStr (s: ^T) (n: int) = s * n
+
+// Direct call
+let direct = repeatStr "ha" 3
+if direct <> "hahaha" then failwith (sprintf "Direct: expected 'hahaha' got '%s'" direct)
+
+// Quotation
+let q = <@ repeatStr "ha" 3 @>
+
+// Evaluate via reflection
+let result = Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation q :?> string
+if result <> "hahaha" then failwith (sprintf "Quotation eval: expected 'hahaha' got '%s'" result)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
