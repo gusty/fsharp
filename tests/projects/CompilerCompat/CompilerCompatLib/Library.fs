@@ -62,3 +62,33 @@ module Library =
     /// Function with ReflectedDefinition
     [<ReflectedDefinition>]
     let reflectedFunction x = x + 1
+
+    // ---- RFC FS-1043 extension operator compat tests ----
+
+    /// Type with NO intrinsic operators
+    type StringRep = { Value: string }
+
+    /// Extension operator on StringRep: repeat via (<*>)
+    type StringRep with
+        static member (<*>) (s: StringRep, n: int) =
+            { Value = System.String.Concat(System.Linq.Enumerable.Repeat(s.Value, n)) }
+
+    /// Inline SRTP function using the extension operator
+    let inline repeatRep (s: ^T) (n: int) =
+        (^T : (static member (<*>) : ^T * int -> ^T) (s, n))
+
+    /// Concrete wrapper (extension resolved at definition time)
+    let repeatRepConcrete (s: StringRep) (n: int) : StringRep = repeatRep s n
+
+    /// Extension operator on generic Wrapper
+    type Wrapper<'T> = { Inner: 'T }
+
+    type Wrapper<'T> with
+        static member (++) (a: Wrapper<'T>, b: Wrapper<'T>) = { Inner = a.Inner }
+
+    /// Inline SRTP function using generic extension operator
+    let inline mergeWrappers (a: ^T) (b: ^T) =
+        (^T : (static member (++) : ^T * ^T -> ^T) (a, b))
+
+    /// Concrete wrapper
+    let mergeWrappersConcrete (a: Wrapper<int>) (b: Wrapper<int>) : Wrapper<int> = mergeWrappers a b
