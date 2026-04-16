@@ -1687,7 +1687,7 @@ and SolveMemberConstraint (csenv: ConstraintSolverEnv) ignoreUnresolvedOverload 
             let denv = csenv.DisplayEnv
             let extensionsEnabled = g.langVersion.SupportsFeature LanguageFeature.ExtensionConstraintSolutions
 
-            // Work out the relevant accessibility domain for the trait
+            // traitAD: extension scope access rights, or AccessibleFromEverywhere when disabled
             let traitAD =
                 if extensionsEnabled then
                     match traitCtxt with
@@ -1733,8 +1733,7 @@ and SolveMemberConstraint (csenv: ConstraintSolverEnv) ignoreUnresolvedOverload 
 
             let minfos = GetRelevantMethodsForTrait csenv permitWeakResolution nm traitInfo
 
-            // For built-in rule matching, only consider intrinsic methods so that
-            // extension methods don't prevent built-in constraint solutions for primitives
+            // Exclude extensions from built-in rules (primitives take precedence)
             let intrinsicMinfos =
                 if extensionsEnabled then
                     minfos |> List.filter (fun (_, minfo) -> not minfo.IsExtensionMember)
@@ -1779,9 +1778,7 @@ and SolveMemberConstraint (csenv: ConstraintSolverEnv) ignoreUnresolvedOverload 
                                     //   - We have the special case "decimal<_> * decimal". In this case we have some 
                                     //     possibly-relevant methods from "decimal" but we ignore them in this case.
                                     (isNil minfos || (Option.isSome (getMeasureOfType g argTy1) && isDecimalTy g argTy2)) &&
-                                    // When extension constraint solutions are enabled and the trait context is missing
-                                    // (e.g. from inline expansion of FSharp.Core operators), don't fire the built-in rule
-                                    // for concrete non-numeric types since extension methods may provide the solution.
+                                    // Skip built-in rule for concrete non-numeric types when traitCtxt=None (inlined from FSharp.Core)
                                     (not extensionsEnabled ||
                                      not (isNil minfos) ||
                                      isTyparTy g argTy2 || IsNumericOrIntegralEnumType g argTy2) in
@@ -2202,12 +2199,7 @@ and MemberConstraintSolutionOfMethInfo css m minfo minst staticTyOpt =
     // to prevent unused parameter warning
     ignore css
 #endif
-    // Strip type variable indirections in minst so that the stored solution contains
-    // concrete types rather than fresh typars whose solutions may be undone by traces.
-    // For C#-style extension methods where the 'this' parameter type involves method type
-    // parameters (e.g., Stringify<T>(this T value)), those typars may never get solved
-    // because GetParamTypes drops the 'this' parameter. Use the apparent enclosing type
-    // (origTy) to derive their values by matching against the method's raw first parameter.
+    // Strip typar indirections when ExtensionConstraintSolutions enabled (C#-style extensions need concrete minst)
     let g = css.g
     let minst = minst |> List.map (stripTyEqnsAndMeasureEqns g)
     match minfo with 
@@ -2288,9 +2280,7 @@ and GetRelevantMethodsForTrait (csenv: ConstraintSolverEnv) (permitWeakResolutio
                         relevantMinfos
                         |> List.exists (fun (_, minfo2) -> MethInfosEquivByNameAndSig EraseAll true csenv.g csenv.amap m minfo2 minfo1)))
 
-            // Also collect extension methods from the trait context if the feature is enabled.
-            // Extension methods are appended after intrinsic methods so intrinsic methods are preferred.
-            // Filter out extension methods that duplicate an intrinsic method by signature.
+            // Append extensions after intrinsics; filter duplicates by sig
             let extensionsEnabled = csenv.g.langVersion.SupportsFeature LanguageFeature.ExtensionConstraintSolutions
 
             let extMinfos =
@@ -3666,10 +3656,7 @@ and ResolveOverloading
         (methodName = "op_Explicit") ||
         (methodName = "op_Implicit")
 
-    // AllowOverloadOnReturnType is intentionally attribute-gated rather than language-version-gated.
-    // The attribute is self-gating: it only takes effect when explicitly applied to a method,
-    // and it only exists in locally-built FSharp.Core until shipped in a public NuGet.
-    // No LanguageFeature entry is needed (RFC FS-1043 design decision).
+    // AllowOverloadOnReturnType: attribute-gated, not langversion-gated (RFC FS-1043)
     let hasAllowOverloadOnReturnType =
         calledMethGroup |> List.exists (fun cmeth -> cmeth.Method.HasAllowOverloadOnReturnType)
 
@@ -4394,10 +4381,7 @@ let CanonicalizePartialInferenceProblem css denv m tps =
         (fun res -> ErrorD (ErrorFromAddingConstraint(denv, res, m))) 
     |> RaiseOperationResult
 
-/// Like CanonicalizePartialInferenceProblem, but for the ExtensionConstraintSolutions feature:
-/// constraints without extension context (TraitContext=None) use weak resolution (Yes) as before;
-/// constraints with extension context (TraitContext=Some) use non-weak resolution (No),
-/// keeping them open for future extension method resolution.
+/// RFC FS-1043: constraints with TraitContext use non-weak resolution; without use weak (preserves existing behavior)
 let CanonicalizePartialInferenceProblemForExtensions css denv m tps =
     let csenv = MakeConstraintSolverEnv ContextInfo.NoContext css m denv
     let csenv = { csenv with ErrorOnFailedMemberConstraintResolution = true }

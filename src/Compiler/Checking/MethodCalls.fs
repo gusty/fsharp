@@ -2206,12 +2206,9 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
             match sln with 
             | ILMethSln(origTy, extOpt, mref, minst, staticTyOpt) ->
                 let metadataTy = convertToTypeWithMetadataIfPossible g origTy
-                // For ILMethSln with C#-style extensions, minst may contain unsolved type
-                // variables. The 'this' parameter is dropped by GetParamTypes, so method type
-                // parameters that appear only in the 'this' parameter (e.g., T in
-                // Stringify<T>(this T value)) are never constrained by CanMemberSigsMatchUpToCheck.
-                // Fix by solving unsolved typars against the trait's argument types, including
-                // the receiver which maps to the method's raw first parameter.
+                // ILMethSln minst: strip typar indirections. For C#-style extensions,
+                // unsolved typars from 'this' param (dropped by GetParamTypes) are
+                // resolved via origTy and IL first-param type variable analysis.
                 let minst =
                     let hasUnsolved = minst |> List.exists (fun ty -> match stripTyEqnsAndMeasureEqns g ty with TType_var(tp, _) -> not tp.IsSolved | _ -> false)
                     if hasUnsolved && extOpt.IsSome then
@@ -2298,11 +2295,7 @@ let GenWitnessExpr amap g m (traitInfo: TraitConstraintInfo) argExprs =
                     | argExprs -> None, argExprs
                 else None, argExprs
 
-            // For C#-style extension methods (static in IL), the receiver may have been
-            // address-taken by the type checker for struct instance method calls. Strip
-            // the address-taking back to a plain value since the static method expects a
-            // by-value argument. Handle direct LAddrOf(x), let tmp = e in &tmp, and
-            // any other byref form by inserting a dereference (LByrefGet).
+            // C#-style extensions: strip address-taking from receiver (static IL call expects by-value arg)
             let receiverArgOpt =
                 if not minfo.IsCSharpStyleExtensionMember then receiverArgOpt
                 else
