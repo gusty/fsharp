@@ -2035,7 +2035,11 @@ if result.Value <> 3 then failwith (sprintf "Expected 3 (intrinsic wins) but got
         |> compileAndRun
         |> shouldSucceed
 
-    [<Fact>]
+    [<Fact
+#if !NETCOREAPP
+     (Skip = "IWSAMs are not supported by NET472.")
+#endif
+    >]
     let ``IWSAM extension wins over interface impl for same operator via SRTP`` () =
         FSharp """
 module TestIWSAMPriority

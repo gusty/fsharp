@@ -102,6 +102,7 @@ if r2 <> expected2 then failwith (sprintf "r2: Expected %A, got %A" expected2 r2
         """
         |> asExe
         |> withLangVersionPreview
+        |> withOptions ["--nowarn:52"]
         |> compileAndRun
         |> shouldSucceed
 
