@@ -4952,3 +4952,64 @@ if r2 <> "xxxxx" then failwith (sprintf "Expected 'xxxxx' got '%s'" r2)
         |> withLangVersionPreview
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``F# Extension attribute method resolves via SRTP`` () =
+        // C2: F#-authored [<Extension>] attribute method resolved via SRTP.
+        // Tests that CreateImplFileTraitContext detects F#-compiled [<Extension>] types.
+        FSharp
+            """
+module TestFSharpExtAttr
+
+open System.Runtime.CompilerServices
+
+[<Extension>]
+type IntExt =
+    [<Extension>]
+    static member Triple(x: int) = x * 3
+
+let inline tripleIt (x: ^T) = (^T : (member Triple : unit -> int) x)
+
+let result = tripleIt 7
+if result <> 21 then failwith (sprintf "Expected 21 got %d" result)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``F# Extension attribute method resolves via SRTP cross-assembly`` () =
+        let library =
+            FSharp
+                """
+module ExtLib
+
+open System.Runtime.CompilerServices
+
+[<Extension>]
+type IntExt =
+    [<Extension>]
+    static member Triple(x: int) = x * 3
+            """
+            |> asLibrary
+            |> withLangVersionPreview
+            |> withName "ExtLib"
+
+        FSharp
+            """
+module Consumer
+
+open ExtLib
+open System.Runtime.CompilerServices
+
+let inline tripleIt (x: ^T) = (^T : (member Triple : unit -> int) x)
+
+let result = tripleIt 7
+if result <> 21 then failwith (sprintf "Expected 21 got %d" result)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
