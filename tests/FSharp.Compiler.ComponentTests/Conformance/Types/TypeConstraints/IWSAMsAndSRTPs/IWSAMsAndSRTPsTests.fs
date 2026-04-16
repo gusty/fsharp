@@ -4805,3 +4805,48 @@ match result with
         |> withReferences [library]
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``Witness quotation: F# extrinsic extension on generic Box evaluates in quotation`` () =
+        // Q6: Cross-assembly user-defined generic type with extension operator in quotation.
+        // Tests type arg instantiation in quotation tree for non-FSharp.Core generic types.
+        let library =
+            FSharp
+                """
+module ExtLib
+
+type Box<'T> = { Value: 'T }
+
+type Box<'T> with
+    static member (++) (a: Box<'T>, b: Box<'T>) = { Value = a.Value }
+            """
+            |> asLibrary
+            |> withLangVersionPreview
+            |> withName "ExtLib"
+
+        FSharp
+            """
+module Consumer
+open ExtLib
+
+let inline merge (a: ^T) (b: ^T) = a ++ b
+
+// Direct call
+let direct = merge { Value = 42 } { Value = 99 }
+if direct.Value <> 42 then failwith (sprintf "Direct: expected 42 got %d" direct.Value)
+
+// Quotation with int instantiation
+let q = <@ merge { Value = 42 } { Value = 99 } @>
+let result = Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation q :?> Box<int>
+if result.Value <> 42 then failwith (sprintf "Quotation eval int: expected 42 got %d" result.Value)
+
+// Quotation with string instantiation — verifies type arg varies correctly
+let qs = <@ merge { Value = "hello" } { Value = "world" } @>
+let resultS = Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation qs :?> Box<string>
+if resultS.Value <> "hello" then failwith (sprintf "Quotation eval string: expected 'hello' got '%s'" resultS.Value)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
