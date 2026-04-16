@@ -4666,3 +4666,71 @@ if result <> 21 then failwith (sprintf "Quotation eval: expected 21 got %d" resu
         |> withReferences [csLib]
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``Witness quotation: C#-style extension on array evaluates in quotation`` () =
+        // Q5: C#-style generic extension on T[] inside <@ @>.
+        // Tests minst fix-up for unsolved typars AND quotation encoding of
+        // the generic method type parameter.
+        let csLib =
+            CSharp """
+namespace CsExt {
+    public static class ArrayExtensions {
+        public static T[] Append<T>(this T[] a, T[] b) {
+            var result = new T[a.Length + b.Length];
+            a.CopyTo(result, 0);
+            b.CopyTo(result, a.Length);
+            return result;
+        }
+    }
+}
+            """
+            |> withCSharpLanguageVersion CSharpLanguageVersion.Preview
+            |> withName "csLib"
+
+        FSharp """
+module TestQ5
+
+open CsExt
+open Microsoft.FSharp.Quotations
+
+let inline append (a: ^T) (b: int[]) = (^T : (member Append : int[] -> int[]) (a, b))
+
+// Direct call
+let direct = append [|1; 2|] [|3; 4|]
+if direct <> [|1; 2; 3; 4|] then failwith (sprintf "Direct: expected [|1;2;3;4|] got %A" direct)
+
+// Quotation
+let q = <@ append [|1; 2|] [|3; 4|] @>
+
+// Walk the quotation tree to find any MethodInfo referencing ArrayExtensions.
+// For inline SRTP functions, the top-level node is CallWithWitnesses to the
+// inline wrapper; the resolved extension method appears inside the witness args.
+let rec findArrayExtensions (expr: Expr) =
+    match expr with
+    | Patterns.Call(_, mi, args) ->
+        mi.DeclaringType.Name.Contains("ArrayExtensions") ||
+        args |> List.exists findArrayExtensions
+    | DerivedPatterns.SpecificCall <@ ignore @> _ -> false
+    | ExprShape.ShapeCombination(_, args) ->
+        args |> List.exists findArrayExtensions
+    | ExprShape.ShapeLambda(_, body) ->
+        findArrayExtensions body
+    | ExprShape.ShapeVar _ -> false
+
+if not (findArrayExtensions q) then
+    // If no ArrayExtensions found as a nested Call, check if top-level is the inline
+    // wrapper (expected for witness-based quotations).
+    match q with
+    | Patterns.Call(_, mi, _) when mi.Name.Contains("append") -> ()
+    | other -> failwith (sprintf "Unexpected quotation shape: %A" other)
+
+// Evaluate via reflection
+let result = Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation q :?> int[]
+if result <> [|1; 2; 3; 4|] then failwith (sprintf "Quotation eval: expected [|1;2;3;4|] got %A" result)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [csLib]
+        |> compileAndRun
+        |> shouldSucceed
