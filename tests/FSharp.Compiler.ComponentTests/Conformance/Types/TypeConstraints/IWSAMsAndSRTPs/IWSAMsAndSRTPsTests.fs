@@ -4772,3 +4772,36 @@ if result <> "hahaha" then failwith (sprintf "Quotation eval: expected 'hahaha' 
         |> withReferences [library]
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``Witness quotation: F# extrinsic extension on Option evaluates in quotation`` () =
+        // Q3: F# extension operator on Option<'T> inside <@ @>.
+        // Tests generic type arg instantiation in quotation tree.
+        let library = optionMapExtLib
+
+        FSharp """
+module Consumer
+open ExtLib
+
+let inline mapOpt (x: ^T) (f: int -> string) = (^T : (static member (|>>) : ^T * (int -> string) -> string option) (x, f))
+
+// Direct call
+let direct = Some 42 |>> (fun n -> string n)
+match direct with
+| Some "42" -> ()
+| other -> failwith (sprintf "Direct: expected Some '42' got %A" other)
+
+// Quotation
+let q = <@ Some 7 |>> (fun n -> string n) @>
+
+// Evaluate
+let result = Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation q :?> string option
+match result with
+| Some "7" -> ()
+| other -> failwith (sprintf "Quotation eval: expected Some '7' got %A" other)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
