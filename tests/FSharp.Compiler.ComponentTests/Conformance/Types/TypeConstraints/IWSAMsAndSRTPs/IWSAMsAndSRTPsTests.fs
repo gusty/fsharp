@@ -4883,3 +4883,48 @@ match result with
         |> withLangVersionPreview
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``Witness quotation: ReflectedDefinition with extension operator`` () =
+        // Q8: [<ReflectedDefinition>] + extension operator witness.
+        // Sub-test (a): non-inline [<ReflectedDefinition>] calling inline SRTP with ext op
+        // Sub-test (b): verify the reflected definition is retrievable and evaluable
+        FSharp """
+module TestQ8
+
+open Microsoft.FSharp.Quotations
+
+type Widget = { V: int }
+
+type Widget with
+    static member (+) (a: Widget, b: Widget) = { V = a.V + b.V }
+
+let inline addWidgets a b = a + b
+
+// Sub-test (a): non-inline [<ReflectedDefinition>] calling inline SRTP
+[<ReflectedDefinition>]
+let addTwoWidgets (a: Widget) (b: Widget) : Widget = addWidgets a b
+
+// Verify direct execution
+let direct = addTwoWidgets { V = 10 } { V = 20 }
+if direct.V <> 30 then failwith (sprintf "Direct: expected 30 got %d" direct.V)
+
+// Sub-test (b): retrieve the reflected definition
+match Expr.TryGetReflectedDefinition(typeof<Widget>.DeclaringType.GetMethod("addTwoWidgets")) with
+| Some _ -> ()  // ReflectedDefinition is retrievable — good
+| None -> 
+    // Try alternative: the method might be on the module type
+    let moduleType = typeof<Widget>.Assembly.GetTypes() |> Array.find (fun t -> t.Name = "TestQ8")
+    match Expr.TryGetReflectedDefinition(moduleType.GetMethod("addTwoWidgets")) with
+    | Some _ -> ()  // Found it
+    | None -> failwith "ReflectedDefinition not found for addTwoWidgets"
+
+// Also verify via quotation
+let q = <@ addTwoWidgets { V = 3 } { V = 4 } @>
+let result = Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation q :?> Widget
+if result.V <> 7 then failwith (sprintf "Quotation eval: expected 7 got %d" result.V)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
