@@ -5063,3 +5063,43 @@ let r = repeatStr "ha" 3
         |> withOptimize
         |> compile
         |> shouldFail
+
+    [<Fact>]
+    let ``Unsolvable SRTP with natural operator syntax produces compile error not runtime NSE`` () =
+        // C4: Verify that using an operator on a type without that operator
+        // produces a compile-time error, not a runtime NotSupportedException.
+        FSharp
+            """
+module TestC4
+
+type Foo = { X: int }
+
+// No (+) defined on Foo — this must fail at compile time
+let r = { X = 1 } + { X = 2 }
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compile
+        |> shouldFail
+        |> withErrorCode 1
+
+    [<Fact>]
+    let ``Previously unsolvable SRTP becomes solvable with extension operator`` () =
+        // Companion to C4: adding an extension operator makes the previously
+        // unsolvable SRTP work — no compile error, correct runtime result.
+        FSharp
+            """
+module TestC4Fix
+
+type Foo = { X: int }
+
+type Foo with
+    static member (+) (a: Foo, b: Foo) = { X = a.X + b.X }
+
+let r = { X = 1 } + { X = 2 }
+if r.X <> 3 then failwith (sprintf "Expected 3 but got %d" r.X)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
