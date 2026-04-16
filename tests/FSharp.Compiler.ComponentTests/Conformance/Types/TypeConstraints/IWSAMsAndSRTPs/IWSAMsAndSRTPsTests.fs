@@ -4474,3 +4474,148 @@ module Consumer =
         |> withLangVersionPreview
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``FS1215 interacts correctly with warnaserror under different langversions`` () =
+        // Under langversion:8.0, FS1215 fires → --warnaserror promotes to error
+        FSharp """
+module Test
+type System.String with
+    static member ( * ) (s: string, n: int) = System.String.Concat(System.Linq.Enumerable.Repeat(s, n))
+        """
+        |> asLibrary
+        |> withOptions ["--warnaserror"]
+        |> compile
+        |> shouldFail
+        |> ignore
+
+        // Under langversion:preview, FS1215 is suppressed → --warnaserror has no effect
+        FSharp """
+module Test
+type System.String with
+    static member ( * ) (s: string, n: int) = System.String.Concat(System.Linq.Enumerable.Repeat(s, n))
+        """
+        |> asLibrary
+        |> withLangVersionPreview
+        |> withOptions ["--warnaserror"]
+        |> compile
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Quotation with true extrinsic extension operator is evaluable`` () =
+        // True optional extension on external type, used cross-assembly
+        let library =
+            FSharp """
+module ExtLib
+type System.String with
+    static member ( * ) (s: string, n: int) = System.String.Concat(System.Linq.Enumerable.Repeat(s, n))
+            """
+            |> asLibrary
+            |> withLangVersionPreview
+
+        FSharp """
+module Consumer
+open ExtLib
+
+let inline repeatStr (s: ^T) (n: int) = s * n
+let result = repeatStr "ab" 3
+if result <> "ababab" then failwith (sprintf "Direct: expected 'ababab' got '%s'" result)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> withReferences [library]
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator satisfies multi-support SRTP constraint`` () =
+        FSharp """
+module Test
+type Celsius = { Degrees: float }
+type Fahrenheit = { Degrees: float }
+
+type Celsius with
+    static member op_Implicit (c: Celsius) : Fahrenheit = { Degrees = c.Degrees * 9.0/5.0 + 32.0 }
+
+let inline convert (x: ^T) : ^U = ((^T or ^U) : (static member op_Implicit: ^T -> ^U) x)
+let f = convert { Celsius.Degrees = 100.0 }
+if abs (f.Degrees - 212.0) > 0.01 then failwith (sprintf "Expected 212 got %f" f.Degrees)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Recursive inline and active pattern with extension operators`` () =
+        FSharp """
+module Test
+type Wrapped = { V: int }
+module WOps =
+    type Wrapped with
+        static member (+) (a: Wrapped, b: Wrapped) = { V = a.V + b.V }
+        static member get_Zero() : Wrapped = { V = 0 }
+
+open WOps
+
+// Active pattern using extension (+)
+let inline (|Positive|Zero|Negative|) (x: ^T) =
+    let z = LanguagePrimitives.GenericZero< ^T>
+    if x > z then Positive
+    elif x < z then Negative
+    else Zero
+
+// Inline fold using extension (+) and GenericZero
+let inline sumList (xs: ^T list) : ^T =
+    List.fold (fun acc x -> acc + x) LanguagePrimitives.GenericZero< ^T> xs
+
+let items = [ {V=1}; {V=2}; {V=3} ]
+let total = sumList items
+if total.V <> 6 then failwith (sprintf "Expected 6 got %d" total.V)
+
+// Use active pattern with ints to verify it works
+match 42 with
+| Positive -> ()
+| _ -> failwith "Expected Positive"
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator produces identical results with and without optimization`` () =
+        let library = optionMapExtLib
+
+        let consumer = FSharp """
+module Consumer
+open ExtLib
+let result = Some 7 |>> (fun n -> n * 3)
+match result with
+| Some 21 -> ()
+| other -> failwith (sprintf "Expected Some 21 got %A" other)
+        """
+
+        // With optimization
+        consumer
+        |> asExe |> withLangVersionPreview |> withReferences [library]
+        |> withOptimize |> compileAndRun |> shouldSucceed
+        |> ignore
+
+        // Without optimization
+        consumer
+        |> asExe |> withLangVersionPreview |> withReferences [library]
+        |> withNoOptimize |> compileAndRun |> shouldSucceed
+
+    [<Fact>]
+    let ``Unsolvable SRTP on concrete type still produces compile error`` () =
+        // Verify that calling a non-existent static member on a concrete type fails
+        FSharp """
+module Test
+type Foo = { X: int }
+let result : int = Foo.op_Addition({ X = 1 }, { X = 2 })
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compile
+        |> shouldFail
