@@ -4850,3 +4850,36 @@ if resultS.Value <> "hello" then failwith (sprintf "Quotation eval string: expec
         |> withReferences [library]
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``Witness quotation: DU extension operator evaluates in quotation`` () =
+        // Q7: Extension operator on a discriminated union type inside <@ @>.
+        // Verifies DU types have no special edge cases in quotation encoding.
+        FSharp
+            """
+module TestQ7
+
+type Tree<'T> = Leaf of 'T | Node of Tree<'T> * Tree<'T>
+
+type Tree<'T> with
+    static member (+) (a, b) = Node(a, b)
+
+let inline combine a b = a + b
+
+// Direct call
+let direct = combine (Leaf 1) (Leaf 2)
+match direct with
+| Node(Leaf 1, Leaf 2) -> ()
+| other -> failwith (sprintf "Direct: expected Node(Leaf 1, Leaf 2) got %A" other)
+
+// Quotation
+let q = <@ combine (Leaf 1) (Leaf 2) @>
+let result = Microsoft.FSharp.Linq.RuntimeHelpers.LeafExpressionConverter.EvaluateQuotation q :?> Tree<int>
+match result with
+| Node(Leaf 1, Leaf 2) -> ()
+| other -> failwith (sprintf "Quotation eval: expected Node(Leaf 1, Leaf 2) got %A" other)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
