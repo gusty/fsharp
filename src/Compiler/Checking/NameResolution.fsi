@@ -233,6 +233,9 @@ type NameResolutionEnv =
         /// Other extension members unindexed by type
         eUnindexedExtensionMembers: ExtensionMember list
 
+        /// Static operator methods from 'open type' declarations, available for SRTP resolution
+        eOpenedTypeOperators: MethInfo list
+
         /// Typars (always available by unqualified names). Further typars can be
         /// in the tpenv, a structure folded through each top-level definition.
         eTypars: NameMap<Typar>

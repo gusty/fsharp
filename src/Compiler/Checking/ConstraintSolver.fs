@@ -4465,18 +4465,75 @@ let CreateImplFileTraitContext (g: TcGlobals) (implFileContents: ModuleOrNamespa
 
              result)
 
+    // Collect static operator methods from all types (not just extension members).
+    // These are needed for 'open type' SRTP resolution where operators are intrinsic
+    // members of a helper type, not extension members of the target type.
+    let staticOperatorsByName =
+        lazy
+            (let result = HashMultiMap<string, TyconRef * ValRef>(10, HashIdentity.Structural)
+
+             for contents in implFileContents do
+                 for v in allValsOfModDef contents do
+                     if v.MemberInfo.IsSome && not v.IsInstanceMember && not v.IsExtensionMember && IsLogicalOpName v.LogicalName then
+                         let vref = mkLocalValRef v
+                         let tcref = v.MemberInfo.Value.ApparentEnclosingEntity
+                         result.Add(v.LogicalName, (tcref, vref))
+
+             let rec collectFromModuleOrNamespaceType (mty: ModuleOrNamespaceType) =
+                 for v in mty.AllValsAndMembers do
+                     if v.MemberInfo.IsSome && not v.IsInstanceMember && not v.IsExtensionMember && v.HasDeclaringEntity && IsLogicalOpName v.LogicalName then
+                         let vref = mkNestedValRef v.DeclaringEntity v
+                         let tcref = v.MemberInfo.Value.ApparentEnclosingEntity
+                         result.Add(v.LogicalName, (tcref, vref))
+                 for entity in mty.AllEntities do
+                     if entity.IsModuleOrNamespace then
+                         collectFromModuleOrNamespaceType entity.ModuleOrNamespaceType
+
+             for ccu in referencedCcus do
+                 try collectFromModuleOrNamespaceType ccu.Contents.ModuleOrNamespaceType
+                 with RecoverableException _ -> ()
+
+             result)
+
     { new TraitContext with
         member _.SelectExtensionMethods(traitInfo, _m, _infoReader) =
             let nm = traitInfo.MemberLogicalName
 
-            [ for supportTy in traitInfo.SupportTypes do
-                  match tryTcrefOfAppTy g supportTy with
-                  | ValueSome tcref ->
-                      for vref in extensionVals.Value.FindAll(tcref.Stamp) do
-                          if vref.LogicalName = nm then
-                              let minfo = MethInfo.FSMeth(g, supportTy, vref, None)
-                              yield (supportTy, minfo)
-                  | _ -> () ]
+            let extResults =
+                [ for supportTy in traitInfo.SupportTypes do
+                      match tryTcrefOfAppTy g supportTy with
+                      | ValueSome tcref ->
+                          for vref in extensionVals.Value.FindAll(tcref.Stamp) do
+                              if vref.LogicalName = nm then
+                                  let minfo = MethInfo.FSMeth(g, supportTy, vref, None)
+                                  yield (supportTy, minfo)
+                      | _ -> () ]
+
+            // For operator names, also search static operator methods on all types.
+            // Skip operators whose enclosing type is already a support type — those are
+            // found as intrinsic members by GetIntrinsicMethInfosOfType and must not be
+            // duplicated here, because returning them as "extension" candidates changes
+            // resolution priority (extensions beat intrinsics for SRTP).
+            let opResults =
+                if IsLogicalOpName nm then
+                    match traitInfo.SupportTypes with
+                    | firstSupportTy :: _ ->
+                        [ for (tcref, vref) in staticOperatorsByName.Value.FindAll(nm) do
+                              let isOnSupportType =
+                                  traitInfo.SupportTypes
+                                  |> List.exists (fun sty ->
+                                      match tryTcrefOfAppTy g sty with
+                                      | ValueSome stcref -> tyconRefEq g tcref stcref
+                                      | _ -> false)
+
+                              if not isOnSupportType then
+                                  let enclosingTy = generalizedTyconRef g tcref
+                                  let minfo = MethInfo.FSMeth(g, enclosingTy, vref, None)
+                                  yield (firstSupportTy, minfo) ]
+                    | [] -> []
+                else []
+
+            extResults @ opResults
 
         member _.AccessRights = AccessibleFromEverywhere }
 

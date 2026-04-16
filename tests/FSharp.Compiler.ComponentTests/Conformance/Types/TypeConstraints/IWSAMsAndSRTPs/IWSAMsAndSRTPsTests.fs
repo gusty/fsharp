@@ -4928,3 +4928,27 @@ if result.V <> 7 then failwith (sprintf "Quotation eval: expected 7 got %d" resu
         |> withLangVersionPreview
         |> compileAndRun
         |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator via open type syntax resolves SRTP constraint`` () =
+        // C1: Verify that 'open type' makes extension operators visible to SRTP.
+        FSharp """
+module TestOpenType
+
+type StringOps =
+    static member (*) (s: string, n: int) = System.String.Concat(System.Linq.Enumerable.Repeat(s, n))
+
+open type StringOps
+
+let inline repeat (s: ^T) (n: int) = s * n
+
+let r1 = repeat "ha" 3
+if r1 <> "hahaha" then failwith (sprintf "Expected 'hahaha' got '%s'" r1)
+
+let r2 = repeat "x" 5
+if r2 <> "xxxxx" then failwith (sprintf "Expected 'xxxxx' got '%s'" r2)
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed

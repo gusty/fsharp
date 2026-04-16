@@ -3033,7 +3033,8 @@ and OptimizeTraitCall cenv env (traitInfo, args, m) =
         | None, Some tc when g.langVersion.SupportsFeature LanguageFeature.ExtensionConstraintSolutions ->
             let (TTrait(a, b, c, d, e, f, _, _)) = traitInfo
             TTrait(a, b, c, d, e, f, ref None, Some tc)
-        | _ -> traitInfo
+        | _ -> 
+            traitInfo
 
     // Resolve the static overloading early (during the compulsory rewrite phase) so we can inline. 
     match ConstraintSolver.CodegenWitnessExprForTraitConstraint cenv.TcVal g cenv.amap m traitInfoForResolution args with

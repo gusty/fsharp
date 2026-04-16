@@ -450,6 +450,9 @@ type NameResolutionEnv =
       /// Other extension members unindexed by type
       eUnindexedExtensionMembers: ExtensionMember list
 
+      /// Static operator methods from 'open type' declarations, available for SRTP resolution
+      eOpenedTypeOperators: MethInfo list
+
       /// Typars (always available by unqualified names). Further typars can be
       /// in the tpenv, a structure folded through each top-level definition.
       eTypars: NameMap<Typar>
@@ -472,6 +475,7 @@ type NameResolutionEnv =
           eFullyQualifiedTyconsByDemangledNameAndArity = LayeredMap.Empty
           eIndexedExtensionMembers = TyconRefMultiMap<_>.Empty
           eUnindexedExtensionMembers = []
+          eOpenedTypeOperators = []
           eTypars = Map.empty }
 
     member nenv.DisplayEnv = nenv.eDisplayEnv
@@ -1250,7 +1254,22 @@ let rec AddStaticContentOfTypeToNameEnv (g:TcGlobals) (amap: Import.ImportMap) a
                 pair)
         |> Array.ofList
 
-    { nenv with eUnqualifiedItems = nenv.eUnqualifiedItems.AddMany methodGroupItems }
+    let nenv = { nenv with eUnqualifiedItems = nenv.eUnqualifiedItems.AddMany methodGroupItems }
+
+    // Collect static operator methods for SRTP resolution via 'open type'.
+    // These are intentionally excluded from eUnqualifiedItems by ChooseMethInfosForNameEnv
+    // but need to be available for SRTP constraint solving.
+    let operatorMethods =
+        IntrinsicMethInfosOfType infoReader None ad AllowMultiIntfInstantiations.Yes PreferOverrides m ty
+        |> List.filter (fun minfo ->
+            not (minfo.IsInstance || minfo.IsClassConstructor || minfo.IsConstructor)
+            && typeEquiv g minfo.ApparentEnclosingType ty
+            && IsLogicalOpName minfo.LogicalName)
+
+    if operatorMethods.IsEmpty then
+        nenv
+    else
+        { nenv with eOpenedTypeOperators = operatorMethods @ nenv.eOpenedTypeOperators }
     
 and private AddNestedTypesOfTypeToNameEnv infoReader (amap: Import.ImportMap) ad m nenv ty =
     let tinst, tcrefs = GetNestedTyconRefsOfType infoReader amap (ad, None, TypeNameResolutionStaticArgsInfo.Indefinite, true, m) ty
@@ -1659,9 +1678,24 @@ let FreshenMethInfo g traitCtxt m (minfo: MethInfo) =
 let SelectExtensionMethInfosForTrait (traitInfo: TraitConstraintInfo, m: range, nenv: NameResolutionEnv, infoReader: InfoReader) : (TType * MethInfo) list =
     let nm = traitInfo.MemberLogicalName
 
-    [ for supportTy in traitInfo.SupportTypes do
-        for minfo in SelectExtMethInfosForType infoReader nenv (Some nm) m supportTy do
-            yield (supportTy, minfo) ]
+    let extResults =
+        [ for supportTy in traitInfo.SupportTypes do
+            for minfo in SelectExtMethInfosForType infoReader nenv (Some nm) m supportTy do
+                yield (supportTy, minfo) ]
+
+    // Also include static operator methods from 'open type' declarations.
+    // These are not registered as extension members but should participate in SRTP resolution.
+    // Each method is yielded once (paired with the first support type) to avoid duplicates
+    // that would confuse overload resolution.
+    let openTypeResults =
+        match traitInfo.SupportTypes with
+        | [] -> []
+        | firstSupportTy :: _ ->
+            [ for minfo in nenv.eOpenedTypeOperators do
+                if minfo.LogicalName = nm then
+                    yield (firstSupportTy, minfo) ]
+
+    extResults @ openTypeResults
 
 /// This must be called after fetching unqualified items that may need to be freshened 
 /// or have type instantiations
