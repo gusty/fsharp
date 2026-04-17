@@ -58,7 +58,13 @@ let main _argv =
             printfn "Literal: %d" CompilerCompatLib.Library.LiteralValue
             printfn "Reflected: %d" (CompilerCompatLib.Library.reflectedFunction 1)
 
-            if processed <> "Processed: X=123, Y=test" then
+            // Test literal attribute arg cross-compiler compatibility
+            let attrObj = CompilerCompatLib.Library.TypeWithLiteralAttrArg()
+            printfn "LiteralAttr: %s" (attrObj.GetValue())
+            if attrObj.GetValue() <> CompilerCompatLib.Library.LiteralAttrArg then
+                printfn "ERROR: Literal attr arg value mismatch"
+                1
+            elif processed <> "Processed: X=123, Y=test" then
                 printfn "ERROR: Processed result doesn't match expected"
                 1
             else
@@ -100,8 +106,26 @@ let main _argv =
                             else
                                 printfn "SUCCESS: custom type operator compat test passed"
 
-                                printfn "SUCCESS: All compiler compatibility tests passed"
-                                0
+                                // T6: extension operator on StringRep via concrete wrapper
+                                let repeatResult = Library.repeatRepConcrete { Library.Value = "ab" } 3
+                                if repeatResult.Value <> "ababab" then
+                                    printfn "ERROR: repeatRepConcrete {Value=\"ab\"} 3 = \"%s\", expected \"ababab\"" repeatResult.Value
+                                    1
+                                else
+                                    printfn "SUCCESS: extension string repeat compat test passed"
+
+                                    // T7: extension operator on generic Wrapper via concrete wrapper
+                                    let w1 = { Library.Inner = 42 }
+                                    let w2 = { Library.Inner = 99 }
+                                    let mergeResult = Library.mergeWrappersConcrete w1 w2
+                                    if mergeResult.Inner <> 42 then
+                                        printfn "ERROR: mergeWrappersConcrete {Inner=42} {Inner=99} = {Inner=%d}, expected {Inner=42}" mergeResult.Inner
+                                        1
+                                    else
+                                        printfn "SUCCESS: extension generic wrapper compat test passed"
+
+                                        printfn "SUCCESS: All compiler compatibility tests passed"
+                                        0
                 
     with ex ->
         printfn "ERROR: Exception occurred: %s" ex.Message
