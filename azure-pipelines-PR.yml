@@ -5,6 +5,7 @@ trigger:
     - main
     - dev16.1
     - feature/*
+    - feature-operators-extensions
     - release/*
   paths:
     include:
