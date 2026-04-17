@@ -633,6 +633,8 @@ let IntrinsicPropInfosOfTypeInScope (infoReader: InfoReader) optFilter ad findFl
 
 /// Select from a list of extension properties
 let SelectPropInfosFromExtMembers (infoReader: InfoReader) ad optFilter declaringTy m extMemInfos =
+    // Fast path: no allocations when the input list is empty.
+    if isNil extMemInfos then [] else
     let g = infoReader.g
     let amap = infoReader.amap
     // NOTE: multiple "open"'s push multiple duplicate values into eIndexedExtensionMembers, hence use a set.
@@ -708,6 +710,9 @@ let rec TrySelectExtensionMethInfoOfILExtMem m amap apparentTy (actualParent, mi
 
 /// Select from a list of extension methods
 let SelectMethInfosFromExtMembers (infoReader: InfoReader) optFilter apparentTy m extMemInfos =
+    // Fast path: avoid allocating the HashSet and list builder when there are no candidates.
+    // This is hot under SRTP/extension-member-heavy code where many lookups miss entirely.
+    if isNil extMemInfos then [] else
     let g = infoReader.g
     // NOTE: multiple "open"'s push multiple duplicate values into eIndexedExtensionMembers
     let seen = HashSet(ExtensionMember.Comparer g)
