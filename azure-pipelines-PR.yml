@@ -5,7 +5,7 @@ trigger:
     - main
     - dev16.1
     - feature/*
-    - feature-operators-extensions
+    - feature*
     - release/*
   paths:
     include:
@@ -32,7 +32,7 @@ pr:
     - main
     - dev16.1
     - feature/*
-    - feature-operators-extensions
+    - feature*
     - release/*
   paths:
     include:
