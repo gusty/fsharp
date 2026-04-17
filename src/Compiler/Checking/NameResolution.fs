@@ -727,6 +727,7 @@ let SelectMethInfosFromExtMembers (infoReader: InfoReader) optFilter apparentTy 
     ]
 
 /// Look up extension method infos for a single type from indexed extension members only.
+/// This does NOT handle function type -> FSharpFunc conversion to avoid issues with SRTP constraint solving.
 let private SelectIndexedExtMethInfosForType (infoReader: InfoReader) (nenv: NameResolutionEnv) optFilter m ty =
     let g = infoReader.g
 
@@ -735,6 +736,17 @@ let private SelectIndexedExtMethInfosForType (infoReader: InfoReader) (nenv: Nam
         let extMemInfos = nenv.eIndexedExtensionMembers.Find tcref
         SelectMethInfosFromExtMembers infoReader optFilter ty m extMemInfos
     | _ -> []
+
+/// Look up extension method infos for function types by converting to FSharpFunc<_,_>.
+let private SelectIndexedExtMethInfosForFunctionType (infoReader: InfoReader) (nenv: NameResolutionEnv) optFilter m ty =
+    let g = infoReader.g
+
+    match tryDestFunTy g ty with
+    | ValueSome (domTy, rngTy) -> 
+        let fsharpFuncTy = mkWoNullAppTy g.fastFunc_tcr [domTy; rngTy]
+        let extMemInfos = nenv.eIndexedExtensionMembers.Find g.fastFunc_tcr
+        SelectMethInfosFromExtMembers infoReader optFilter fsharpFuncTy m extMemInfos
+    | ValueNone -> []
 
 /// Look up extension method infos for a single type from both indexed and unindexed extension members.
 let private SelectExtMethInfosForType (infoReader: InfoReader) (nenv: NameResolutionEnv) optFilter m ty =
@@ -746,16 +758,21 @@ let private SelectExtMethInfosForType (infoReader: InfoReader) (nenv: NameResolu
 let ExtensionMethInfosOfTypeInScope (collectionSettings: ResultCollectionSettings) (infoReader: InfoReader) (nenv: NameResolutionEnv) optFilter isInstanceFilter m ty =
     let rootResults = SelectExtMethInfosForType infoReader nenv optFilter m ty
 
+    // For function types, also look up extensions on FSharpFunc<_,_>
+    // This enables operators defined on FSharpFunc to work on function values
+    let funcTypeResults = SelectIndexedExtMethInfosForFunctionType infoReader nenv optFilter m ty
+
     let combined =
-        if collectionSettings = ResultCollectionSettings.AtMostOneResult && not (isNil rootResults) then
-            rootResults
+        let allRootResults = rootResults @ funcTypeResults
+        if collectionSettings = ResultCollectionSettings.AtMostOneResult && not (isNil allRootResults) then
+            allRootResults
         else
             let baseIndexedResults =
                 match infoReader.GetEntireTypeHierarchy(AllowMultiIntfInstantiations.Yes, m, ty) with
                 | _ :: baseTys -> baseTys |> List.collect (SelectIndexedExtMethInfosForType infoReader nenv optFilter m)
                 | [] -> []
 
-            rootResults @ baseIndexedResults
+            allRootResults @ baseIndexedResults
 
     combined
     |> List.filter (fun minfo ->
@@ -1659,9 +1676,22 @@ let FreshenMethInfo g traitCtxt m (minfo: MethInfo) =
 let SelectExtensionMethInfosForTrait (traitInfo: TraitConstraintInfo, m: range, nenv: NameResolutionEnv, infoReader: InfoReader) : (TType * MethInfo) list =
     let nm = traitInfo.MemberLogicalName
 
+    // Helper to check if a type contains any rigid type parameters.
+    // Rigid type parameters appear in inline function definitions and cause IL gen issues
+    // when used with FSharpFunc extension lookup.
+    let containsRigidTypar ty =
+        let freeTypars = (freeInType CollectTyparsNoCaching ty).FreeTypars
+        freeTypars |> Zset.exists (fun tp -> tp.Rigidity = TyparRigidity.Rigid)
+
     [ for supportTy in traitInfo.SupportTypes do
         for minfo in SelectExtMethInfosForType infoReader nenv (Some nm) m supportTy do
-            yield (supportTy, minfo) ]
+            yield (supportTy, minfo)
+
+        // For function types, also look up extensions on FSharpFunc<_,_>
+        // but skip if the type contains rigid type parameters to avoid IL gen issues
+        if not (containsRigidTypar supportTy) then
+            for minfo in SelectIndexedExtMethInfosForFunctionType infoReader nenv (Some nm) m supportTy do
+                yield (supportTy, minfo) ]
 
 /// This must be called after fetching unqualified items that may need to be freshened 
 /// or have type instantiations

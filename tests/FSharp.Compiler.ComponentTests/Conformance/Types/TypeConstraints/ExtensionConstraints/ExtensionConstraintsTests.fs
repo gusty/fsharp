@@ -303,3 +303,103 @@ module Consumer =
         |> withLangVersionPreview
         |> compile
         |> shouldFail
+
+    [<Fact>]
+    let ``Extension operator on FSharpFunc type`` () =
+        FSharp """
+module Test
+
+type Microsoft.FSharp.Core.FSharpFunc<'t, 'u> with 
+    static member (|>>) (f: 't -> 'u, g: 'u -> 'v) : 't -> 'v = f >> g
+
+let composed = string |>> List.singleton
+let result = composed 5
+if result <> ["5"] then failwith $"Expected [\"5\"], got {result}"
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on FSharpFunc - piped usage`` () =
+        FSharp """
+module Test
+
+type Microsoft.FSharp.Core.FSharpFunc<'t, 'u> with 
+    static member (|>>) (f: 't -> 'u, g: 'u -> 'v) : 't -> 'v = f >> g
+
+// This tests: 5 |> (string |>> List.singleton)
+let x02 = 5 |> (string |>> List.singleton)
+if x02 <> ["5"] then failwith $"Expected [\"5\"], got {x02}"
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on FSharpFunc with nested SRTP - map squared`` () =
+        // Tests |>>> ("map squared") which uses flip and |>> with FSharpFunc extension
+        // This is the test case from miniFSharpPlus.fsx
+        FSharp """
+module Test
+
+type List<'t> with 
+    static member (|>>) (x: list<'t>, f: 't -> 'u) : list<'u> = List.map f x
+
+type Option<'t> with 
+    static member (|>>) (x: option<'t>, f: 't -> 'u) : option<'u> = Option.map f x
+
+type Microsoft.FSharp.Core.FSharpFunc<'t, 'u> with 
+    static member (|>>) (f: 't -> 'u, g: 'u -> 'v) : 't -> 'v = f >> g
+
+let inline flip f x y = f y x
+
+type List<'t> with 
+    static member inline (|>>>) (x: list<'MonadT>, f) = (flip (|>>) >> flip (|>>)) f x
+
+// Test: apply |>>> to a list of options
+let x07 = [Some 1] |>>> string
+if x07 <> [Some "1"] then failwith $"Expected [Some \"1\"], got {x07}"
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
+
+    [<Fact>]
+    let ``Extension operator on FSharpFunc with deeply nested SRTP - map cubed`` () =
+        // Tests |>>>> ("map cubed") which uses three levels of flip and |>>
+        // This previously caused "Undefined or unsolved type variable" regression
+        FSharp """
+module Test
+
+type List<'t> with 
+    static member (|>>) (x: list<'t>, f: 't -> 'u) : list<'u> = List.map f x
+
+type Option<'t> with 
+    static member (|>>) (x: option<'t>, f: 't -> 'u) : option<'u> = Option.map f x
+
+type Microsoft.FSharp.Core.FSharpFunc<'t, 'u> with 
+    static member (|>>) (f: 't -> 'u, g: 'u -> 'v) : 't -> 'v = f >> g
+
+let inline flip f x y = f y x
+
+type List<'t> with 
+    static member inline (|>>>) (x: list<'MonadT>, f) = (flip (|>>) >> flip (|>>)) f x
+
+type List<'t> with 
+    static member inline (|>>>>) (x: list<'Monad2T>, f) = (flip (|>>) >> flip (|>>) >> flip (|>>)) f x
+
+// Test: apply |>>>> to a nested structure
+let x08 = [[Some 1]] |>>>> string
+if x08 <> [[Some "1"]] then failwith $"Expected [[Some \"1\"]], got {x08}"
+
+let x09 = [Some [1]] |>>>> string
+if x09 <> [Some ["1"]] then failwith $"Expected [Some [\"1\"]], got {x09}"
+        """
+        |> asExe
+        |> withLangVersionPreview
+        |> compileAndRun
+        |> shouldSucceed
