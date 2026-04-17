@@ -748,6 +748,20 @@ let private SelectIndexedExtMethInfosForFunctionType (infoReader: InfoReader) (n
         SelectMethInfosFromExtMembers infoReader optFilter fsharpFuncTy m extMemInfos
     | ValueNone -> []
 
+/// Look up extension method infos for tuple types by converting to System.Tuple<_,...> or System.ValueTuple<_,...>.
+let private SelectIndexedExtMethInfosForTupleType (infoReader: InfoReader) (nenv: NameResolutionEnv) optFilter m ty =
+    let g = infoReader.g
+
+    if isAnyTupleTy g ty then
+        let compiledTupleTy = convertToTypeWithMetadataIfPossible g ty
+        match tryTcrefOfAppTy g compiledTupleTy with
+        | ValueSome tcref ->
+            let extMemInfos = nenv.eIndexedExtensionMembers.Find tcref
+            SelectMethInfosFromExtMembers infoReader optFilter compiledTupleTy m extMemInfos
+        | ValueNone -> []
+    else
+        []
+
 /// Look up extension method infos for a single type from both indexed and unindexed extension members.
 let private SelectExtMethInfosForType (infoReader: InfoReader) (nenv: NameResolutionEnv) optFilter m ty =
     let indexedResults = SelectIndexedExtMethInfosForType infoReader nenv optFilter m ty
@@ -1691,7 +1705,11 @@ let SelectExtensionMethInfosForTrait (traitInfo: TraitConstraintInfo, m: range, 
         // but skip if the type contains rigid type parameters to avoid IL gen issues
         if not (containsRigidTypar supportTy) then
             for minfo in SelectIndexedExtMethInfosForFunctionType infoReader nenv (Some nm) m supportTy do
-                yield (supportTy, minfo) ]
+                yield (supportTy, minfo)
+
+        // For tuple types, also look up extensions on System.Tuple<_,...> / System.ValueTuple<_,...>
+        for minfo in SelectIndexedExtMethInfosForTupleType infoReader nenv (Some nm) m supportTy do
+            yield (supportTy, minfo) ]
 
 /// This must be called after fetching unqualified items that may need to be freshened 
 /// or have type instantiations
