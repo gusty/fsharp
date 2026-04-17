@@ -92,3 +92,18 @@ module Library =
 
     /// Concrete wrapper
     let mergeWrappersConcrete (a: Wrapper<int>) (b: Wrapper<int>) : Wrapper<int> = mergeWrappers a b
+
+    /// Literal string used as an attribute argument.
+    /// Tests that Expr.Val in AttribExpr.source pickles/unpickles across compiler versions.
+    [<Literal>]
+    let LiteralAttrArg = "compat-test-value"
+
+    /// Custom attribute for cross-version literal attribute arg testing
+    type TestAttrAttribute(value: string) =
+        inherit System.Attribute()
+        member _.Value = value
+
+    /// Type decorated with an attribute whose argument is a literal val reference
+    [<TestAttr(LiteralAttrArg)>]
+    type TypeWithLiteralAttrArg() =
+        member _.GetValue() = LiteralAttrArg

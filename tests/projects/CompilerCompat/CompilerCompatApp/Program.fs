@@ -58,7 +58,13 @@ let main _argv =
             printfn "Literal: %d" CompilerCompatLib.Library.LiteralValue
             printfn "Reflected: %d" (CompilerCompatLib.Library.reflectedFunction 1)
 
-            if processed <> "Processed: X=123, Y=test" then
+            // Test literal attribute arg cross-compiler compatibility
+            let attrObj = CompilerCompatLib.Library.TypeWithLiteralAttrArg()
+            printfn "LiteralAttr: %s" (attrObj.GetValue())
+            if attrObj.GetValue() <> CompilerCompatLib.Library.LiteralAttrArg then
+                printfn "ERROR: Literal attr arg value mismatch"
+                1
+            elif processed <> "Processed: X=123, Y=test" then
                 printfn "ERROR: Processed result doesn't match expected"
                 1
             else
