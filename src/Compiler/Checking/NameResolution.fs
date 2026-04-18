@@ -450,8 +450,8 @@ type NameResolutionEnv =
       /// Other extension members unindexed by type
       eUnindexedExtensionMembers: ExtensionMember list
 
-      /// Static operator methods from 'open type' declarations, available for SRTP resolution
-      eOpenedTypeOperators: MethInfo list
+      /// Static operator methods from 'open type' declarations, available for SRTP resolution, indexed by logical name.
+      eOpenedTypeOperators: NameMultiMap<MethInfo>
 
       /// Typars (always available by unqualified names). Further typars can be
       /// in the tpenv, a structure folded through each top-level definition.
@@ -475,7 +475,7 @@ type NameResolutionEnv =
           eFullyQualifiedTyconsByDemangledNameAndArity = LayeredMap.Empty
           eIndexedExtensionMembers = TyconRefMultiMap<_>.Empty
           eUnindexedExtensionMembers = []
-          eOpenedTypeOperators = []
+          eOpenedTypeOperators = Map.empty
           eTypars = Map.empty }
 
     member nenv.DisplayEnv = nenv.eDisplayEnv
@@ -1305,7 +1305,10 @@ let rec AddStaticContentOfTypeToNameEnv (g:TcGlobals) (amap: Import.ImportMap) a
     if operatorMethods.IsEmpty then
         nenv
     else
-        { nenv with eOpenedTypeOperators = operatorMethods @ nenv.eOpenedTypeOperators }
+        let eOpenedTypeOperators =
+            (nenv.eOpenedTypeOperators, operatorMethods)
+            ||> List.fold (fun acc minfo -> NameMultiMap.add minfo.LogicalName minfo acc)
+        { nenv with eOpenedTypeOperators = eOpenedTypeOperators }
     
 and private AddNestedTypesOfTypeToNameEnv infoReader (amap: Import.ImportMap) ad m nenv ty =
     let tinst, tcrefs = GetNestedTyconRefsOfType infoReader amap (ad, None, TypeNameResolutionStaticArgsInfo.Indefinite, true, m) ty
@@ -1744,9 +1747,9 @@ let SelectExtensionMethInfosForTrait (traitInfo: TraitConstraintInfo, m: range, 
         match traitInfo.SupportTypes with
         | [] -> []
         | firstSupportTy :: _ ->
-            [ for minfo in nenv.eOpenedTypeOperators do
-                if minfo.LogicalName = nm then
-                    yield (firstSupportTy, minfo) ]
+            nenv.eOpenedTypeOperators
+            |> NameMultiMap.find nm
+            |> List.map (fun minfo -> (firstSupportTy, minfo))
 
     extResults @ openTypeResults
 
