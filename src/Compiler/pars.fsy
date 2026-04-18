@@ -2579,6 +2579,17 @@ tyconNameAndTyparDecls:
         let synTy = SynType.Tuple(true, path, unionRanges (rhs parseState 2) (rhs parseState 9))
         None, [], false, $1, Some synTy }
 
+  /* Recovery: type ('T1) or type ('T1) with ... - single type in parens, not a valid tuple */
+  | opt_access LPAREN appTypeCanBeNullable rparen
+      { None, [], false, $1, Some $3 }
+
+  /* Recovery: type ('T1 *) or type ('T1 *) with ... - trailing star, missing second type */
+  | opt_access LPAREN appTypeCanBeNullable STAR rparen
+      { let mStar = rhs parseState 4
+        let path = [SynTupleTypeSegment.Type $3; SynTupleTypeSegment.Star mStar]
+        let synTy = mkSynTypeTuple path
+        None, [], false, $1, Some synTy }
+
   | opt_access recover
       { None, [], false, $1, None }
 
