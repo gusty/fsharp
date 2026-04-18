@@ -1271,9 +1271,12 @@ let rec AddStaticContentOfTypeToNameEnv (g:TcGlobals) (amap: Import.ImportMap) a
 
     let nenv = { nenv with eUnqualifiedItems = nenv.eUnqualifiedItems.AddMany items }
 
+    let allMethInfos =
+        IntrinsicMethInfosOfType infoReader None ad AllowMultiIntfInstantiations.Yes PreferOverrides m ty
+
     let methodGroupItems =
         // Methods
-        IntrinsicMethInfosOfType infoReader None ad AllowMultiIntfInstantiations.Yes PreferOverrides m ty
+        allMethInfos
         |> ChooseMethInfosForNameEnv g m ty
         // Combine methods and extension method groups of the same type
         |> List.map (fun pair ->
@@ -1296,7 +1299,7 @@ let rec AddStaticContentOfTypeToNameEnv (g:TcGlobals) (amap: Import.ImportMap) a
     // These are intentionally excluded from eUnqualifiedItems by ChooseMethInfosForNameEnv
     // but need to be available for SRTP constraint solving.
     let operatorMethods =
-        IntrinsicMethInfosOfType infoReader None ad AllowMultiIntfInstantiations.Yes PreferOverrides m ty
+        allMethInfos
         |> List.filter (fun minfo ->
             not (minfo.IsInstance || minfo.IsClassConstructor || minfo.IsConstructor)
             && typeEquiv g minfo.ApparentEnclosingType ty
