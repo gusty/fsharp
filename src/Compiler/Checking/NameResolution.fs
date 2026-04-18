@@ -930,6 +930,9 @@ let AddTyconByAccessNames bulkAddMode (tcrefs: TyconRef[]) (tab: LayeredMultiMap
 /// Add a record field to the corresponding sub-table of the name resolution environment
 let AddRecdField (rfref: RecdFieldRef) tab = NameMultiMap.add rfref.FieldName rfref tab
 
+/// Index a MethInfo by its logical name into a NameMultiMap sub-table of the environment.
+let AddMethInfoByLogicalName (minfo: MethInfo) tab = NameMultiMap.add minfo.LogicalName minfo tab
+
 /// Add a set of union cases to the corresponding sub-table of the environment
 let AddUnionCases1 (tab: Map<_, _>) (ucrefs: UnionCaseRef list) =
     (tab, ucrefs) ||> List.fold (fun acc ucref ->
@@ -1309,8 +1312,9 @@ let rec AddStaticContentOfTypeToNameEnv (g:TcGlobals) (amap: Import.ImportMap) a
         nenv
     else
         let eOpenedTypeOperators =
-            (nenv.eOpenedTypeOperators, operatorMethods)
-            ||> List.fold (fun acc minfo -> NameMultiMap.add minfo.LogicalName minfo acc)
+            // Use foldBack so that, within this call, operatorMethods land in the bucket
+            // in source order (same order as the previous list-prepend implementation).
+            List.foldBack AddMethInfoByLogicalName operatorMethods nenv.eOpenedTypeOperators
         { nenv with eOpenedTypeOperators = eOpenedTypeOperators }
     
 and private AddNestedTypesOfTypeToNameEnv infoReader (amap: Import.ImportMap) ad m nenv ty =
