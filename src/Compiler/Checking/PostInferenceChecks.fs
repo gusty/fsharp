@@ -2407,6 +2407,13 @@ let CheckEntityDefn cenv env (tycon: Entity) =
                 if not (Object.ReferenceEquals(m, minfo)) then
                     yield m ]
 
+        // Scan-so-far index of properties seen earlier in this iteration:
+        // at each pinfo, `others` contains only previously-visited homographs.
+        // This is deliberate — each duplicate pair is reported once (when the
+        // second member of the pair is encountered), rather than twice as a
+        // symmetric full-build index would do. Do not convert to NameMultiMap /
+        // `immediateMethsByLogicalName`-style without also revising the
+        // diagnostic assertions in related tests.
         let hashOfImmediateProps = Dictionary<string, _>()
         for minfo in immediateMeths do
             let nm = minfo.LogicalName
