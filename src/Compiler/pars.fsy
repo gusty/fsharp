@@ -2549,18 +2549,14 @@ tyconNameAndTyparDecls:
   | opt_access path postfixTyparDecls
       { Some $3, $2.LongIdent, true, $1, None }
 
-  /* Tuple type extension: type ('T1 * 'T2) with ..., type ('T1 * 'T2 * 'T3) with ..., etc. */
-  | opt_access LPAREN appTypeCanBeNullable STAR tupleOrQuotTypeElements rparen
-      { let mStar = rhs parseState 4
-        let path = SynTupleTypeSegment.Type $3 :: SynTupleTypeSegment.Star mStar :: $5
-        let synTy = mkSynTypeTuple path
-        None, [], false, $1, Some synTy }
-
-  /* Struct tuple type extension: type struct ('T1 * 'T2) with ..., type struct ('T1 * 'T2 * 'T3) with ..., etc. */
-  | opt_access STRUCT LPAREN appTypeCanBeNullable STAR tupleOrQuotTypeElements rparen
+  /* Tuple type extension: type ('T1 * 'T2) with ..., type struct ('T1 * 'T2) with ..., etc. */
+  | opt_access opt_struct LPAREN appTypeCanBeNullable STAR tupleOrQuotTypeElements rparen
       { let mStar = rhs parseState 5
         let path = SynTupleTypeSegment.Type $4 :: SynTupleTypeSegment.Star mStar :: $6
-        let synTy = SynType.Tuple(true, path, unionRanges (rhs parseState 2) (rhs parseState 7))
+        let synTy =
+            match $2 with
+            | Some mStruct -> SynType.Tuple(true, path, unionRanges mStruct (rhs parseState 7))
+            | None -> mkSynTypeTuple path
         None, [], false, $1, Some synTy }
 
   /* Recovery: type ('T1) or type ('T1) with ... - single type in parens, not a valid tuple */
@@ -7016,6 +7012,10 @@ opt_seps:
 opt_rec:
   | REC { true }
   | /* EMPTY */ { false }
+
+opt_struct:
+  | STRUCT { Some(rhs parseState 1) }
+  | /* EMPTY */ { None }
 
 opt_inline:
   | INLINE { Some(rhs parseState 1) }
