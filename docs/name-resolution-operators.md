@@ -84,30 +84,37 @@ Each surviving `MethInfo` is added with `AddMethInfoByLogicalName` — a
 
 ## The order invariant
 
-Within a single `open type`, the operator list must land in the bucket in
-**source-declaration order**: the operator written first must be at the head
-of the bucket. This is why the insertion uses `List.foldBack`, not a left
-fold and not `NameMultiMap.initBy`.
+Within a single `open type`, the operator list lands in the bucket in
+**source-declaration order**: the operator written first ends up at the head
+of the bucket. This matches the semantics of the previous list-prepend
+implementation; the insertion uses `List.foldBack` (not a left fold, not
+`NameMultiMap.initBy`) to preserve it.
 
-The in-source comment at `NameResolution.fs:1283–1299` documents this. The
-key facts:
+This invariant is defensive rather than observably pinned. Overload
+resolution in `MethodCalls.fs` is order-sensitive when two candidates are
+equally applicable, but in practice candidates within the same holder type
+disambiguate on parameter types first. The bucket order becomes observable
+across multiple `open type` declarations: the most-recently-opened holder
+appears first in the bucket (because each new `foldBack` prepends), which
+matches the cross-`open` semantics of the prior flat-list implementation.
 
-- Overload resolution (`ResolveOverloading` in `MethodCalls.fs`) is
-  order-sensitive when two candidates are equally applicable — the first
-  wins.
+Design notes:
+
 - `NameMultiMap.initBy` groups via `Seq.groupBy`, which does not preserve
-  within-group order relative to source; using it here silently flips which
-  overload is picked for homograph operators declared on the same holder.
+  within-group order relative to source; it is deliberately avoided here.
 - `List.foldBack f [a; b; c] init` adds `c` first, then `b`, then `a` — so
   `a` ends up at the head of the bucket. That matches source order.
 
-The pinned regression test is
-`tests/.../ExtensionConstraints/testFiles/OpenTypeOperatorHomographOrder.fs`.
+The coverage test
+`tests/.../ExtensionConstraints/testFiles/OpenTypeOperatorHomographOrder.fs`
+exercises the >=2-entries-per-bucket path. It does not by itself pin the
+within-call source-order tie-break (its three overloads disambiguate on
+parameter type). Adding a genuine tie-break test is future work.
 
 ## Consumer: `SelectExtensionMethInfosForTrait`
 
-The bucket is read by `SelectExtensionMethInfosForTrait`, at
-`src/Compiler/Checking/NameResolution.fs:1707`. During SRTP/trait-constraint
+The bucket is read by `SelectExtensionMethInfosForTrait` in
+`src/Compiler/Checking/NameResolution.fs`. During SRTP/trait-constraint
 solving the compiler asks "for trait with member name `nm`, which extension
 candidates are available?" and this function returns:
 
@@ -117,12 +124,9 @@ candidates are available?" and this function returns:
    each paired with the first support type to avoid creating synthetic
    duplicates that would confuse overload resolution.
 
-Crucially, the returned list from the `NameMultiMap` must also be in source
-order — which follows automatically from the insertion invariant above. The
-consumer comment at `NameResolution.fs:1715–1723` re-states this and
-cross-references the insertion site.
-
-The result then feeds overload resolution in `MethodCalls.fs`.
+The returned list from the `NameMultiMap` is in source-order — follows
+automatically from the insertion site. The result then feeds overload
+resolution in `MethodCalls.fs`.
 
 ## Test coverage
 

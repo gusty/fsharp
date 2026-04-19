@@ -1312,22 +1312,17 @@ let rec AddStaticContentOfTypeToNameEnv (g:TcGlobals) (amap: Import.ImportMap) a
         nenv
     else
         let eOpenedTypeOperators =
-            // ORDER INVARIANT: within this single 'open type', operatorMethods must land in
-            // the NameMultiMap bucket in *source order* (first declared -> head of bucket).
-            //
-            // The bucket is consumed by SelectExtensionMethInfosForTrait (below, ~line 1709)
-            // which feeds the list into overload resolution in ResolveOverloading
-            // (MethodCalls.fs). Overload resolution is order-sensitive when two overloads
-            // tie on applicability: the first candidate wins. Reordering would silently
-            // change which overload is picked for homograph operators declared on the same
-            // holder type (see OpenTypeOperatorHomographOrder.fs).
-            //
-            // This matches the source-order semantics of the previous list-prepend
-            // implementation that preceded the NameMultiMap index.
-            //
-            // Do NOT replace with a left fold unless you also reverse operatorMethods,
-            // and do NOT use NameMultiMap.initBy here (initBy groups via Seq.groupBy,
-            // which reverses within-bucket order relative to source).
+            // Source-order preservation of `operatorMethods` within a single
+            // `open type`: this matches the semantics of the previous list-prepend
+            // implementation that preceded the NameMultiMap index. It is NOT
+            // currently pinned by a test exercising overload-resolution tie-break
+            // by source order — F#'s overload resolution typically disambiguates
+            // on parameter types before reaching the order-dependent tie-break.
+            // We keep `List.foldBack` (rather than `List.fold` or
+            // `NameMultiMap.initBy`, which would reverse within-bucket order)
+            // to avoid silent semantic drift, and so that the cross-open
+            // "most-recently-opened head of bucket" property (consumed by
+            // `SelectExtensionMethInfosForTrait`) stays well-defined.
             List.foldBack AddMethInfoByLogicalName operatorMethods nenv.eOpenedTypeOperators
         { nenv with eOpenedTypeOperators = eOpenedTypeOperators }
     
@@ -1765,10 +1760,12 @@ let SelectExtensionMethInfosForTrait (traitInfo: TraitConstraintInfo, m: range, 
     // Each method is yielded once (paired with the first support type) to avoid duplicates
     // that would confuse overload resolution.
     //
-    // ORDER INVARIANT: the list returned by NameMultiMap.find below must be in source
-    // declaration order (first declared -> head). This is maintained at insertion in
-    // AddStaticContentOfTypeToNameEnv (see List.foldBack comment there, ~line 1283).
-    // Overload resolution downstream is order-sensitive.
+    // The list returned by `NameMultiMap.find` below is in source-declaration order
+    // (first declared -> head), preserved at insertion by `List.foldBack` in
+    // `AddStaticContentOfTypeToNameEnv`. This matches the prior flat-list semantics;
+    // order-sensitive overload resolution rarely observes this within a single holder
+    // (candidates usually disambiguate on parameter types first), but across multiple
+    // `open type` declarations the most-recently-opened holder appears first.
     let openTypeResults =
         match traitInfo.SupportTypes with
         | [] -> []
