@@ -35,6 +35,10 @@ module ExtensionConstraintsTests =
         compileAndRunPreview "ExtensionPrecedence.fs"
 
     [<Fact>]
+    let ``open type with homograph operators yields all overloads for SRTP`` () =
+        compileAndRunPreview "OpenTypeOperatorHomographOrder.fs"
+
+    [<Fact>]
     let ``Extension operators respect accessibility`` () =
         compileAndRunPreview "ExtensionAccessibility.fs"
 
