@@ -180,3 +180,26 @@ and registered in `ExtensionConstraintsTests.fs`:
   precedence over an extension operator declared on the same primitive —
   even through SRTP. Pinned by the
   `Built-in operator wins over extension on same type` test.
+
+## Measurements
+
+The refactor to a name-indexed bucket (`NameMultiMap<MethInfo>`) replaces a
+per-lookup filter over a flat `MethInfo list`. Under a synthetic
+FSharpPlus-like stress harness (`SemigroupOp`-style overloads for `list`,
+`array`, `Option`, `ResizeArray`, `string`, `HashSet`, `Map`, `seq`, plus
+~40 consumer files exercising SRTP dispatch), typecheck phase self-time
+was within measurement noise across 5 sample runs on macOS / .NET 10.0
+(`dotnet fsc --times`):
+
+| Variant         | Typecheck self (s, median of 5) |
+| --------------- | ------------------------------- |
+| Pre-refactor    | 1.148                           |
+| Post-refactor   | 1.206                           |
+
+Delta is inside run-to-run variance (stddev on both variants ≈ 0.08s),
+so this is not a measured perf win on this harness. The refactor stands
+on structural grounds — named indexing of a trait-name-keyed bucket is
+the right data model for the `SelectExtensionMethInfosForTrait` consumer
+— not on wall-clock improvement. Benchmarking on a larger corpus
+(FSharpPlus, Fable repo etc., see PLAN.md §0.4) is future work to either
+confirm neutrality or surface a target-specific improvement.
