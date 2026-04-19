@@ -39,6 +39,18 @@ module ExtensionConstraintsTests =
         compileAndRunPreview "OpenTypeOperatorHomographOrder.fs"
 
     [<Fact>]
+    let ``open type homograph operators across multiple holder types accumulate`` () =
+        compileAndRunPreview "OpenTypeOperatorHomographMultipleHolders.fs"
+
+    [<Fact>]
+    let ``open type nested in a module scopes extension operator correctly`` () =
+        compileAndRunPreview "OpenTypeOperatorNestedModule.fs"
+
+    [<Fact>]
+    let ``local let binding shadows open type extension operator`` () =
+        compileAndRunPreview "OpenTypeOperatorShadowing.fs"
+
+    [<Fact>]
     let ``Extension operators respect accessibility`` () =
         compileAndRunPreview "ExtensionAccessibility.fs"
 

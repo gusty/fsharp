@@ -1312,8 +1312,22 @@ let rec AddStaticContentOfTypeToNameEnv (g:TcGlobals) (amap: Import.ImportMap) a
         nenv
     else
         let eOpenedTypeOperators =
-            // Use foldBack so that, within this call, operatorMethods land in the bucket
-            // in source order (same order as the previous list-prepend implementation).
+            // ORDER INVARIANT: within this single 'open type', operatorMethods must land in
+            // the NameMultiMap bucket in *source order* (first declared -> head of bucket).
+            //
+            // The bucket is consumed by SelectExtensionMethInfosForTrait (below, ~line 1709)
+            // which feeds the list into overload resolution in ResolveOverloading
+            // (MethodCalls.fs). Overload resolution is order-sensitive when two overloads
+            // tie on applicability: the first candidate wins. Reordering would silently
+            // change which overload is picked for homograph operators declared on the same
+            // holder type (see OpenTypeOperatorHomographOrder.fs).
+            //
+            // This matches the source-order semantics of the previous list-prepend
+            // implementation that preceded the NameMultiMap index.
+            //
+            // Do NOT replace with a left fold unless you also reverse operatorMethods,
+            // and do NOT use NameMultiMap.initBy here (initBy groups via Seq.groupBy,
+            // which reverses within-bucket order relative to source).
             List.foldBack AddMethInfoByLogicalName operatorMethods nenv.eOpenedTypeOperators
         { nenv with eOpenedTypeOperators = eOpenedTypeOperators }
     
@@ -1750,6 +1764,11 @@ let SelectExtensionMethInfosForTrait (traitInfo: TraitConstraintInfo, m: range, 
     // These are not registered as extension members but should participate in SRTP resolution.
     // Each method is yielded once (paired with the first support type) to avoid duplicates
     // that would confuse overload resolution.
+    //
+    // ORDER INVARIANT: the list returned by NameMultiMap.find below must be in source
+    // declaration order (first declared -> head). This is maintained at insertion in
+    // AddStaticContentOfTypeToNameEnv (see List.foldBack comment there, ~line 1283).
+    // Overload resolution downstream is order-sensitive.
     let openTypeResults =
         match traitInfo.SupportTypes with
         | [] -> []

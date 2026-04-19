@@ -2399,10 +2399,10 @@ let CheckEntityDefn cenv env (tycon: Entity) =
             | _ -> []
 
         // precompute methods grouped by MethInfo.LogicalName
-        let hashOfImmediateMeths : NameMultiMap<MethInfo> =
+        let immediateMethsByLogicalName : NameMultiMap<MethInfo> =
             NameMultiMap.initBy (fun (m: MethInfo) -> m.LogicalName) immediateMeths
         let getOtherMethods (minfo : MethInfo) =
-            [ for m in NameMultiMap.find minfo.LogicalName hashOfImmediateMeths do
+            [ for m in NameMultiMap.find minfo.LogicalName immediateMethsByLogicalName do
                 // use referential identity to filter out 'minfo' method
                 if not (Object.ReferenceEquals(m, minfo)) then
                     yield m ]
@@ -2487,7 +2487,7 @@ let CheckEntityDefn cenv env (tycon: Entity) =
                 | None -> m
                 | Some vref -> vref.DefinitionRange
 
-            if hashOfImmediateMeths.ContainsKey nm then
+            if immediateMethsByLogicalName.ContainsKey nm then
                 errorR(Error(FSComp.SR.chkPropertySameNameMethod(nm, NicePrint.minimalStringOfType cenv.denv ty), m))
 
             let others = getHash hashOfImmediateProps nm
@@ -2535,13 +2535,13 @@ let CheckEntityDefn cenv env (tycon: Entity) =
             hashOfImmediateProps[nm] <- pinfo :: others
 
         if not (isInterfaceTy g ty) then
-            let hashOfAllVirtualMethsInParent : NameMultiMap<MethInfo> =
+            let parentVirtualMethsByLogicalName : NameMultiMap<MethInfo> =
                 NameMultiMap.initBy (fun (m: MethInfo) -> m.LogicalName) allVirtualMethsInParent
             for minfo in immediateMeths do
                 if not minfo.IsDispatchSlot && not minfo.IsVirtual && minfo.IsInstance then
                     let nm = minfo.LogicalName
                     let m = (match minfo.ArbitraryValRef with None -> m | Some vref -> vref.DefinitionRange)
-                    let parentMethsOfSameName = NameMultiMap.find nm hashOfAllVirtualMethsInParent
+                    let parentMethsOfSameName = NameMultiMap.find nm parentVirtualMethsByLogicalName
                     let checkForDup erasureFlag (minfo2: MethInfo) = minfo2.IsDispatchSlot && MethInfosEquivByNameAndSig erasureFlag true g cenv.amap m minfo minfo2
                     match parentMethsOfSameName |> List.tryFind (checkForDup EraseAll) with
                     | None -> ()
@@ -2556,7 +2556,7 @@ let CheckEntityDefn cenv env (tycon: Entity) =
                 if minfo.IsDispatchSlot then
                     let nm = minfo.LogicalName
                     let m = (match minfo.ArbitraryValRef with None -> m | Some vref -> vref.DefinitionRange)
-                    let parentMethsOfSameName = NameMultiMap.find nm hashOfAllVirtualMethsInParent
+                    let parentMethsOfSameName = NameMultiMap.find nm parentVirtualMethsByLogicalName
                     let checkForDup erasureFlag minfo2 = MethInfosEquivByNameAndSig erasureFlag true g cenv.amap m minfo minfo2
 
                     if parentMethsOfSameName |> List.exists (checkForDup EraseAll) then
