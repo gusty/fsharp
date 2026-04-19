@@ -1312,17 +1312,10 @@ let rec AddStaticContentOfTypeToNameEnv (g:TcGlobals) (amap: Import.ImportMap) a
         nenv
     else
         let eOpenedTypeOperators =
-            // Source-order preservation of `operatorMethods` within a single
-            // `open type`: this matches the semantics of the previous list-prepend
-            // implementation that preceded the NameMultiMap index. It is NOT
-            // currently pinned by a test exercising overload-resolution tie-break
-            // by source order — F#'s overload resolution typically disambiguates
-            // on parameter types before reaching the order-dependent tie-break.
-            // We keep `List.foldBack` (rather than `List.fold` or
-            // `NameMultiMap.initBy`, which would reverse within-bucket order)
-            // to avoid silent semantic drift, and so that the cross-open
-            // "most-recently-opened head of bucket" property (consumed by
-            // `SelectExtensionMethInfosForTrait`) stays well-defined.
+            // Preserve source-declaration order of `operatorMethods` within each bucket
+            // (matches the prior list-prepend semantics). `List.foldBack` lands the first
+            // declared method at the head of the bucket; do not switch to `List.fold` or
+            // `NameMultiMap.initBy` without reversing first. See `docs/name-resolution-operators.md`.
             List.foldBack AddMethInfoByLogicalName operatorMethods nenv.eOpenedTypeOperators
         { nenv with eOpenedTypeOperators = eOpenedTypeOperators }
     
@@ -1758,14 +1751,9 @@ let SelectExtensionMethInfosForTrait (traitInfo: TraitConstraintInfo, m: range, 
     // Also include static operator methods from 'open type' declarations.
     // These are not registered as extension members but should participate in SRTP resolution.
     // Each method is yielded once (paired with the first support type) to avoid duplicates
-    // that would confuse overload resolution.
-    //
-    // The list returned by `NameMultiMap.find` below is in source-declaration order
-    // (first declared -> head), preserved at insertion by `List.foldBack` in
-    // `AddStaticContentOfTypeToNameEnv`. This matches the prior flat-list semantics;
-    // order-sensitive overload resolution rarely observes this within a single holder
-    // (candidates usually disambiguate on parameter types first), but across multiple
-    // `open type` declarations the most-recently-opened holder appears first.
+    // that would confuse overload resolution. Bucket order is source-declaration order
+    // within each `open type` and most-recently-opened-first across `open type`s; see
+    // `AddStaticContentOfTypeToNameEnv` and `docs/name-resolution-operators.md`.
     let openTypeResults =
         match traitInfo.SupportTypes with
         | [] -> []

@@ -2398,22 +2398,20 @@ let CheckEntityDefn cenv env (tycon: Entity) =
             | true, h -> h
             | _ -> []
 
+        // Index MethInfos by LogicalName; used for fresh-build groupings below.
+        let methInfosByLogicalName (xs: MethInfo list) : NameMultiMap<MethInfo> =
+            NameMultiMap.initBy (fun m -> m.LogicalName) xs
+
         // precompute methods grouped by MethInfo.LogicalName
-        let immediateMethsByLogicalName : NameMultiMap<MethInfo> =
-            NameMultiMap.initBy (fun (m: MethInfo) -> m.LogicalName) immediateMeths
+        let immediateMethsByLogicalName = methInfosByLogicalName immediateMeths
         let getOtherMethods (minfo : MethInfo) =
             [ for m in NameMultiMap.find minfo.LogicalName immediateMethsByLogicalName do
                 // use referential identity to filter out 'minfo' method
                 if not (Object.ReferenceEquals(m, minfo)) then
                     yield m ]
 
-        // Scan-so-far index of properties seen earlier in this iteration:
-        // at each pinfo, `others` contains only previously-visited homographs.
-        // This is deliberate — each duplicate pair is reported once (when the
-        // second member of the pair is encountered), rather than twice as a
-        // symmetric full-build index would do. Do not convert to NameMultiMap /
-        // `immediateMethsByLogicalName`-style without also revising the
-        // diagnostic assertions in related tests.
+        // Scan-so-far: each duplicate pair reported once, when the second member is seen.
+        // Symmetrizing (via NameMultiMap) would double-emit — see immediateMethsByLogicalName above.
         let hashOfImmediateProps = Dictionary<string, _>()
         for minfo in immediateMeths do
             let nm = minfo.LogicalName
@@ -2542,8 +2540,7 @@ let CheckEntityDefn cenv env (tycon: Entity) =
             hashOfImmediateProps[nm] <- pinfo :: others
 
         if not (isInterfaceTy g ty) then
-            let parentVirtualMethsByLogicalName : NameMultiMap<MethInfo> =
-                NameMultiMap.initBy (fun (m: MethInfo) -> m.LogicalName) allVirtualMethsInParent
+            let parentVirtualMethsByLogicalName = methInfosByLogicalName allVirtualMethsInParent
             for minfo in immediateMeths do
                 if not minfo.IsDispatchSlot && not minfo.IsVirtual && minfo.IsInstance then
                     let nm = minfo.LogicalName
