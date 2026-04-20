@@ -1577,6 +1577,11 @@
         <target state="translated">Değerler, işlevler ve yöntemler üzerinde '[&lt;Struct&gt;]' kullanımına yalnızca kısmi etkin model tanımlarında izin verilir</target>
         <note />
       </trans-unit>
+      <trans-unit id="tcInvalidTypeForTypeExtension">
+        <source>This type cannot be used for a type extension. Type extensions are only supported for named types and tuple types.</source>
+        <target state="new">This type cannot be used for a type extension. Type extensions are only supported for named types and tuple types.</target>
+        <note />
+      </trans-unit>
       <trans-unit id="tcInvalidUseBangBindingNoAndBangs">
         <source>use! may not be combined with and!</source>
         <target state="translated">use!, and! ile birleştirilemez</target>
@@ -8957,12 +8962,12 @@
         <target state="translated">{0} bağımlılık yöneticisi uzantısı yüklenemedi. İleti: {1}</target>
         <note />
       </trans-unit>
-        <trans-unit id="featureWarnWhenFunctionValueUsedAsInterpolatedStringArg" translate="yes" xml:space="preserve">
+      <trans-unit id="featureWarnWhenFunctionValueUsedAsInterpolatedStringArg" translate="yes" xml:space="preserve">
           <source>Warn when a function value is used as an interpolated string argument</source>
           <target state="new">Warn when a function value is used as an interpolated string argument</target>
           <note />
         </trans-unit>
-        <trans-unit id="tcFunctionValueUsedAsInterpolatedStringArg" translate="yes" xml:space="preserve">
+      <trans-unit id="tcFunctionValueUsedAsInterpolatedStringArg" translate="yes" xml:space="preserve">
           <source>This expression is a function value. When used in an interpolated string it will be formatted using its 'ToString' method, which is likely not the intended behavior. Consider applying the function to its arguments.</source>
           <target state="new">This expression is a function value. When used in an interpolated string it will be formatted using its 'ToString' method, which is likely not the intended behavior. Consider applying the function to its arguments.</target>
           <note />

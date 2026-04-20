@@ -1815,3 +1815,4 @@ featureExtensionConstraintSolutions,"Allow extension members to participate in S
 3882,lexHashElifMustBeFirst,"#elif directive must appear as the first non-whitespace character on a line"
 3883,lexHashElifMustHaveIdent,"#elif directive should be immediately followed by an identifier"
 3884,tcFunctionValueUsedAsInterpolatedStringArg,"This expression is a function value. When used in an interpolated string it will be formatted using its 'ToString' method, which is likely not the intended behavior. Consider applying the function to its arguments."
+3885,tcInvalidTypeForTypeExtension,"This type cannot be used for a type extension. Type extensions are only supported for named types and tuple types."
