@@ -2553,10 +2553,15 @@ tyconNameAndTyparDecls:
   | opt_access opt_struct LPAREN appTypeCanBeNullable STAR tupleOrQuotTypeElements rparen
       { let mStar = rhs parseState 5
         let path = SynTupleTypeSegment.Type $4 :: SynTupleTypeSegment.Star mStar :: $6
-        let synTy =
+        let mTuple =
             match $2 with
-            | Some mStruct -> SynType.Tuple(true, path, unionRanges mStruct (rhs parseState 7))
-            | None -> mkSynTypeTuple path
+            | Some mStruct -> unionRanges mStruct (rhs parseState 7)
+            | None -> 
+                match path with
+                | [] -> range0
+                | head :: tail -> (head.Range, tail) ||> List.fold (fun acc segment -> unionRanges acc segment.Range)
+        // Mark range as synthetic so IDE services don't report this constructed tuple type
+        let synTy = SynType.Tuple($2.IsSome, path, mTuple.MakeSynthetic())
         None, [], false, $1, Some synTy }
 
   /* Recovery: type ('T1) or type ('T1) with ... - single type in parens, not a valid tuple */
