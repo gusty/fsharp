@@ -2558,6 +2558,30 @@ tyconNameAndTyparDecls:
   | opt_access atomType
       { None, false, $1, Some $2 }
 
+  /* Recovery: type ('T1) or type ('T1) with ... - single type in parens, not a valid tuple */
+  | opt_access LPAREN appTypeCanBeNullable rparen
+      { None, false, $1, Some $3 }
+
+  /* Recovery: type ('T1 *) or type ('T1 *) with ... - trailing star, missing second type */
+  | opt_access LPAREN appTypeCanBeNullable STAR rparen
+      { let mStar = rhs parseState 4
+        let ty2 = SynType.FromParseError(mStar.EndRange)
+        let path = [SynTupleTypeSegment.Type $3; SynTupleTypeSegment.Star mStar; SynTupleTypeSegment.Type ty2]
+        let mTuple = rhs2 parseState 2 5
+        None, false, $1, Some (SynType.Tuple(false, path, mTuple.MakeSynthetic())) }
+
+  /* Recovery: type struct ('T1) or type struct ('T1) with ... - single type in parens with struct */
+  | opt_access STRUCT LPAREN appTypeCanBeNullable rparen
+      { None, false, $1, Some $4 }
+
+  /* Recovery: type struct ('T1 *) or type struct ('T1 *) with ... - trailing star with struct */
+  | opt_access STRUCT LPAREN appTypeCanBeNullable STAR rparen
+      { let mStar = rhs parseState 5
+        let ty2 = SynType.FromParseError(mStar.EndRange)
+        let path = [SynTupleTypeSegment.Type $4; SynTupleTypeSegment.Star mStar; SynTupleTypeSegment.Type ty2]
+        let mTuple = rhs2 parseState 2 6
+        None, false, $1, Some (SynType.Tuple(true, path, mTuple.MakeSynthetic())) }
+
   | opt_access recover
       { None, false, $1, None }
 
